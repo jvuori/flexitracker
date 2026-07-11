@@ -7,7 +7,7 @@
 
 ## 2. Identity, access & registry
 
-- [ ] 2.1 Configure Cloudflare Access with Google IdP; policy allowing any Google account on user routes and an owner-email allowlist on `/admin/*`
+- [x] 2.1 Configure Cloudflare Access with Google IdP; policy allowing any Google account on user routes and an owner-email allowlist on `/admin/*`
 - [x] 2.2 Implement the global registry: `google_sub → account_id` and `access_key → (account_id, machine_id)` with strong-consistency reads
 - [x] 2.3 Implement first-login account minting (stable internal `account_id` from `sub`; store email for display only)
 - [x] 2.4 Implement per-machine access-key issuance and revocation, including the ready-to-run agent-config command shown in the UI
