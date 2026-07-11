@@ -81,6 +81,25 @@ async function run() {
     await j(`/api/corrections/${corr.id}`, { method: "DELETE" }).catch(() => {});
   }
 
+  // Seal path (dev only): a fully-past day → maintenance materializes rollup+sessions.
+  if (!process.env.CF_ACCESS_CLIENT_ID) {
+    const past = monday - 14 * 86400_000 + 9 * H;
+    await fetch(BASE + "/ingest", {
+      method: "POST",
+      headers: { authorization: `Bearer ${key.access_key}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        batch_seq: 2,
+        events: [
+          { ts: past, kind: "active" },
+          { ts: past + 3 * H, kind: "idle" },
+        ],
+      }),
+    });
+    const maint = await j("/api/dev/maintenance", { method: "POST" });
+    check("maintenance sealed a rollup", maint.rollups >= 1, JSON.stringify(maint));
+    check("maintenance wrote sessions", maint.sessions >= 1);
+  }
+
   console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
   process.exit(failures === 0 ? 0 : 1);
 }

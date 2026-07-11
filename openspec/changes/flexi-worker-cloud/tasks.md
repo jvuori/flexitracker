@@ -1,6 +1,6 @@
 ## 1. Foundations & cost verification
 
-- [ ] 1.1 Confirm current Cloudflare free-tier Durable Object quotas and Cloudflare Access free-tier (≤50 users) terms; record findings in design.md Open Questions
+- [x] 1.1 Confirm current Cloudflare free-tier Durable Object quotas and Cloudflare Access free-tier (≤50 users) terms; record findings in design.md Open Questions
 - [x] 1.2 Create the repository layout: a Rust workspace (daemon) and a TypeScript Cloudflare Workers project (Worker + Durable Object), plus a static Pages assets directory
 - [ ] 1.3 Provision Cloudflare resources via wrangler: Worker, Durable Object binding (SQLite backend), Pages project, and the global registry store (D1 or KV)
 - [x] 1.4 Document the shared event/batch wire schema (~6 fields) in one place referenced by both Rust and TypeScript
@@ -63,8 +63,8 @@
 ## 9. Admin console
 
 - [x] 9.1 Implement the registered-users overview (email, created, machine count, last seen) from the global registry
-- [ ] 9.2 Implement per-account machine/key views and key revocation
-- [ ] 9.3 Record admin mutations with admin identity and timestamp
+- [x] 9.2 Implement per-account machine/key views and key revocation
+- [x] 9.3 Record admin mutations with admin identity and timestamp
 
 ## 10. Local simulation harness (establish early)
 
@@ -84,7 +84,7 @@
 
 ## 12. End-to-end validation
 
-- [ ] 12.1 Verify a full path: daemon capture → offline buffer → flush → ingest → seal → week view numbers, across a simulated multi-day/multi-machine dataset
+- [x] 12.1 Verify a full path: daemon capture → offline buffer → flush → ingest → seal → week view numbers, across a simulated multi-day/multi-machine dataset
 - [x] 12.2 Verify a correction round-trip (add meeting, remove private usage) recomputes the day and updates weekly totals
 - [x] 12.3 Verify timezone authority (same week identical from two browser timezones) and admin allowlist enforcement
 - [ ] 12.4 Confirm end-to-end operation stays within free-tier limits

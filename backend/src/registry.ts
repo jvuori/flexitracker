@@ -39,7 +39,43 @@ CREATE TABLE IF NOT EXISTS machine_key (
   revoked_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS machine_key_account ON machine_key (account_id);
+CREATE TABLE IF NOT EXISTS admin_audit (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  at          INTEGER NOT NULL,
+  admin_email TEXT NOT NULL,
+  action      TEXT NOT NULL,
+  target      TEXT
+);
 `;
+
+export interface AuditEntry {
+  id: number;
+  at: number;
+  admin_email: string;
+  action: string;
+  target: string | null;
+}
+
+/** Record an administrative mutation with who did it and when. */
+export async function recordAudit(
+  db: D1Database,
+  adminEmail: string,
+  action: string,
+  target: string | null,
+): Promise<void> {
+  await db
+    .prepare("INSERT INTO admin_audit (at, admin_email, action, target) VALUES (?, ?, ?, ?)")
+    .bind(Date.now(), adminEmail, action, target)
+    .run();
+}
+
+export async function listAudit(db: D1Database, limit = 100): Promise<AuditEntry[]> {
+  const res = await db
+    .prepare("SELECT * FROM admin_audit ORDER BY at DESC LIMIT ?")
+    .bind(limit)
+    .all<AuditEntry>();
+  return res.results;
+}
 
 export async function ensureRegistrySchema(db: D1Database): Promise<void> {
   // D1 batch of DDL statements.

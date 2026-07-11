@@ -203,9 +203,36 @@ function renderMachines(m){
 
 async function renderAdmin(accts){
  view.innerHTML='<h2>Admin · registered accounts</h2>';
- const t=el('<table><tr><th>Email</th><th>Account</th><th>Created</th></tr></table>');
- for(const a of accts)t.append(el('<tr><td>'+a.email+'</td><td class="muted">'+a.account_id.slice(0,8)+'</td><td class="muted">'+new Date(a.created_at).toLocaleDateString()+'</td></tr>'));
+ const t=el('<table><tr><th>Email</th><th>Account</th><th>Created</th><th></th></tr></table>');
+ for(const a of accts){
+  const tr=el('<tr><td>'+a.email+'</td><td class="muted">'+a.account_id.slice(0,8)+'</td><td class="muted">'+new Date(a.created_at).toLocaleDateString()+'</td><td></td></tr>');
+  const b=el('<button class="act">Keys</button>');
+  b.onclick=()=>renderAdminKeys(a);
+  tr.lastChild.append(b);
+  t.append(tr);
+ }
  view.append(t);
+ const audit=await api('/admin/audit');
+ if(audit.length){
+  view.append(el('<h3>Audit log</h3>'));
+  const at=el('<table><tr><th>When</th><th>Admin</th><th>Action</th><th>Target</th></tr></table>');
+  for(const e of audit)at.append(el('<tr><td class="muted">'+new Date(e.at).toLocaleString()+'</td><td>'+e.admin_email+'</td><td>'+e.action+'</td><td class="muted">'+(e.target||'')+'</td></tr>'));
+  view.append(at);
+ }
+}
+
+async function renderAdminKeys(a){
+ const keys=await api('/admin/accounts/'+a.account_id+'/keys');
+ view.innerHTML='<h2>Admin · '+a.email+'</h2>';
+ view.append(el('<button class="act" id="back">← accounts</button>'));
+ const t=el('<table><tr><th>Label</th><th>Machine</th><th>Status</th><th></th></tr></table>');
+ for(const k of keys){
+  const tr=el('<tr><td>'+(k.label||'—')+'</td><td class="muted">'+k.machine_id.slice(0,8)+'</td><td>'+(k.revoked_at?'<span class="muted">revoked</span>':'active')+'</td><td></td></tr>');
+  if(!k.revoked_at){const b=el('<button class="act">Revoke</button>');b.onclick=async()=>{await api('/admin/accounts/'+a.account_id+'/keys/'+k.access_key+'/revoke',{method:'POST'});renderAdminKeys(a);};tr.lastChild.append(b);}
+  t.append(tr);
+ }
+ view.append(t);
+ document.getElementById('back').onclick=()=>TABS.admin();
 }
 
 TABS.week();

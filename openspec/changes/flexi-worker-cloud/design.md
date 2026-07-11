@@ -95,5 +95,8 @@ Greenfield — no data or system to migrate. Rollout order: (1) provision Cloudf
 
 ## Open Questions
 
-- Exact current numbers for Cloudflare free-tier DO quotas and Access user limits (verification, not a design change).
+- **Free-tier quotas (verified July 2026 — the zero-cost guarantee holds).**
+  - Durable Objects on the **Workers Free** plan (SQLite backend only, which is exactly what we use): **100,000 requests/day**, **13,000 GB-s/day** compute, **5,000,000 rows read/day**, **100,000 rows written/day**, **5 GB** total storage (1 GB max per object). Daily counters reset 00:00 UTC. SQLite storage billing began Jan 2026 but **Free-plan accounts are not charged**.
+  - **Cloudflare Access (Zero Trust) Free**: up to **50 users** — ample for personal use.
+  - These are **account-wide** and shared by QA + PROD. Personal-scale usage (a handful of machines batching every few minutes ≈ hundreds of requests/day) sits orders of magnitude under every limit, so no cost is expected now or later. Watch the 100k requests/day counter if the fleet ever grows large.
 - Whether machine-level threshold overrides are ever needed, or settings stay strictly per-account (default: per-account).

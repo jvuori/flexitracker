@@ -6,7 +6,9 @@ import {
   getOrCreateAccount,
   issueKey,
   listAccounts,
+  listAudit,
   listKeys,
+  recordAudit,
   resolveKey,
   revokeKey,
 } from "./registry";
@@ -85,6 +87,12 @@ api.use("*", async (c, next) => {
 
 api.get("/status", async (c) => c.json(await tenant(c.env, c.get("accountId")).getStatus()));
 
+// Dev-only: trigger the seal/recompute/prune maintenance the alarm runs nightly.
+api.post("/dev/maintenance", async (c) => {
+  if (c.env.DEV_MODE !== "1") return c.json({ error: "not found" }, 404);
+  return c.json(await tenant(c.env, c.get("accountId")).runMaintenanceNow());
+});
+
 api.get("/week", async (c) => {
   const offset = Number(c.req.query("offset") ?? "0");
   return c.json(await tenant(c.env, c.get("accountId")).weekView(offset));
@@ -151,9 +159,13 @@ api.get("/admin/accounts/:id/keys", async (c) =>
   c.json(await listKeys(c.env.REGISTRY, c.req.param("id"))),
 );
 api.post("/admin/accounts/:id/keys/:key/revoke", async (c) => {
-  const ok = await revokeKey(c.env.REGISTRY, c.req.param("id"), c.req.param("key"));
+  const id = c.req.param("id");
+  const key = c.req.param("key");
+  const ok = await revokeKey(c.env.REGISTRY, id, key);
+  await recordAudit(c.env.REGISTRY, c.get("identity").email, "revoke_key", `${id}:${key}`);
   return c.json({ ok });
 });
+api.get("/admin/audit", async (c) => c.json(await listAudit(c.env.REGISTRY)));
 
 app.route("/api", api);
 

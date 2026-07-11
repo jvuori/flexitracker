@@ -328,6 +328,18 @@ export class TenantDO extends DurableObject<Env> {
     this.ctx.storage.setAlarm(Date.now() + DAY_MS);
   }
 
+  /** Dev/test hook: run maintenance now and report what was materialized. */
+  runMaintenanceNow(): { rollups: number; sessions: number } {
+    this.runMaintenance(Date.now());
+    const rollups = Number(
+      (this.sql.exec("SELECT count(*) AS n FROM daily_rollup").one() as { n: number }).n,
+    );
+    const sessions = Number(
+      (this.sql.exec("SELECT count(*) AS n FROM session").one() as { n: number }).n,
+    );
+    return { rollups, sessions };
+  }
+
   /** Seal elapsed dirty days into rollups/sessions, then prune old raw. */
   runMaintenance(now: number): void {
     const s = this.getSettings();
