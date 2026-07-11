@@ -4,7 +4,7 @@
 
 use flexi_core::{ActivityEvent, EventBatch, MachineDescriptor};
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct OutboxState {
@@ -93,8 +93,16 @@ mod tests {
         let path = tmp();
         {
             let mut ob = Outbox::open(path.clone()).unwrap();
-            ob.append(&[ActivityEvent { ts: 1, kind: EventKind::Active }]).unwrap();
-            ob.append(&[ActivityEvent { ts: 2, kind: EventKind::Idle }]).unwrap();
+            ob.append(&[ActivityEvent {
+                ts: 1,
+                kind: EventKind::Active,
+            }])
+            .unwrap();
+            ob.append(&[ActivityEvent {
+                ts: 2,
+                kind: EventKind::Idle,
+            }])
+            .unwrap();
             assert_eq!(ob.pending_len(), 2);
         }
         // Reopen: pending survived the "restart".
@@ -108,7 +116,11 @@ mod tests {
         assert!(ob.next_batch().is_none());
 
         // Next batch uses the incremented sequence.
-        ob.append(&[ActivityEvent { ts: 3, kind: EventKind::Active }]).unwrap();
+        ob.append(&[ActivityEvent {
+            ts: 3,
+            kind: EventKind::Active,
+        }])
+        .unwrap();
         assert_eq!(ob.next_batch().unwrap().batch_seq, 1);
         std::fs::remove_file(&path).ok();
     }

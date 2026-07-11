@@ -70,21 +70,21 @@
 
 - [x] 10.1 Run the full stack locally via wrangler/Miniflare with persisted local Durable Object SQLite storage
 - [x] 10.2 Implement a configurable local identity stub that replaces Cloudflare Access in local mode
-- [ ] 10.3 Build a synthetic-activity generator (multi-day; breaks, meetings, evening work; multi-machine) that posts through the real ingest pipeline
-- [ ] 10.4 Verify local browser viewing and bridging/correction round-trips match deployed behavior on both laptop and mobile widths
+- [x] 10.3 Build a synthetic-activity generator (multi-day; breaks, meetings, evening work; multi-machine) that posts through the real ingest pipeline
+- [x] 10.4 Verify local browser viewing and bridging/correction round-trips match deployed behavior on both laptop and mobile widths
 
 ## 11. CI/CD and environments (GitHub Actions, establish early)
 
-- [ ] 11.1 Define isolated QA and PROD Cloudflare environments (separate Workers, Durable Objects, registry, Pages, Access) via named wrangler environments
-- [ ] 11.2 CI on every push: lint, format, type-check, and Rust + TS unit tests (blocking)
-- [ ] 11.3 Auto-deploy QA on push to the main branch
-- [ ] 11.4 Run the end-to-end integration suite against live QA after deploy (ingest → seal → week view → correction round-trip)
-- [ ] 11.5 Manual, explicitly-triggered PROD deploy, gated on the latest QA end-to-end run passing
-- [ ] 11.6 Least-privilege deploy credentials as protected secrets; assert no secret leakage and combined free-tier compliance
+- [x] 11.1 Define isolated QA and PROD Cloudflare environments (separate Workers, Durable Objects, registry, Pages, Access) via named wrangler environments
+- [x] 11.2 CI on every push: lint, format, type-check, and Rust + TS unit tests (blocking)
+- [x] 11.3 Auto-deploy QA on push to the main branch
+- [x] 11.4 Run the end-to-end integration suite against live QA after deploy (ingest → seal → week view → correction round-trip)
+- [x] 11.5 Manual, explicitly-triggered PROD deploy, gated on the latest QA end-to-end run passing
+- [x] 11.6 Least-privilege deploy credentials as protected secrets; assert no secret leakage and combined free-tier compliance
 
 ## 12. End-to-end validation
 
 - [ ] 12.1 Verify a full path: daemon capture → offline buffer → flush → ingest → seal → week view numbers, across a simulated multi-day/multi-machine dataset
-- [ ] 12.2 Verify a correction round-trip (add meeting, remove private usage) recomputes the day and updates weekly totals
-- [ ] 12.3 Verify timezone authority (same week identical from two browser timezones) and admin allowlist enforcement
+- [x] 12.2 Verify a correction round-trip (add meeting, remove private usage) recomputes the day and updates weekly totals
+- [x] 12.3 Verify timezone authority (same week identical from two browser timezones) and admin allowlist enforcement
 - [ ] 12.4 Confirm end-to-end operation stays within free-tier limits

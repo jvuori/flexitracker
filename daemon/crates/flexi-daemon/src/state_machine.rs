@@ -156,10 +156,18 @@ mod tests {
         StateMachine::new(Thresholds::default(), Persisted::default())
     }
     fn active_tick(now: i64) -> Tick {
-        Tick { now, idle_ms: 0, locked: false }
+        Tick {
+            now,
+            idle_ms: 0,
+            locked: false,
+        }
     }
     fn idle_tick(now: i64, idle_ms: i64) -> Tick {
-        Tick { now, idle_ms, locked: false }
+        Tick {
+            now,
+            idle_ms,
+            locked: false,
+        }
     }
     /// Bring the machine to a confirmed Active state (two ticks ≥ min_activity).
     fn activate(m: &mut StateMachine, start: i64) {
@@ -171,7 +179,10 @@ mod tests {
     #[test]
     fn activation_is_debounced_then_backdated() {
         let mut m = sm();
-        assert!(m.step(active_tick(1_000)).is_empty(), "not confirmed on first tick");
+        assert!(
+            m.step(active_tick(1_000)).is_empty(),
+            "not confirmed on first tick"
+        );
         let out = m.step(active_tick(41_000)); // 40s ≥ min_activity(30s)
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].kind, EventKind::Active);
@@ -184,7 +195,7 @@ mod tests {
         let mut m = sm();
         m.step(active_tick(0)); // active pending at 0
         m.step(active_tick(60_000)); // confirmed active; last_active=60s
-        // Now idle for >= min_inactivity: observed at 12min, idle 11min.
+                                     // Now idle for >= min_inactivity: observed at 12min, idle 11min.
         let out = m.step(idle_tick(12 * 60_000, 11 * 60_000));
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].kind, EventKind::Idle);
@@ -208,7 +219,10 @@ mod tests {
         // One fresh tick, then idle again before min_activity elapses.
         assert!(m.step(active_tick(100_000)).is_empty());
         let out = m.step(idle_tick(110_000, 60_000));
-        assert!(out.is_empty(), "sub-min_activity blip must not report active");
+        assert!(
+            out.is_empty(),
+            "sub-min_activity blip must not report active"
+        );
         assert_eq!(m.p.reported_state, State::Idle);
     }
 
@@ -220,14 +234,20 @@ mod tests {
         let out = m.step(active_tick(140_000)); // 40s >= min_activity(30s)
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].kind, EventKind::Active);
-        assert_eq!(out[0].ts, 100_000, "active back-dated to when input resumed");
+        assert_eq!(
+            out[0].ts, 100_000,
+            "active back-dated to when input resumed"
+        );
     }
 
     #[test]
     fn heartbeats_emitted_while_active() {
         let mut m = sm();
         activate(&mut m, 0); // confirmed active; last heartbeat at 40s
-        assert!(m.step(active_tick(100_000)).is_empty(), "60s < heartbeat interval");
+        assert!(
+            m.step(active_tick(100_000)).is_empty(),
+            "60s < heartbeat interval"
+        );
         let out = m.step(active_tick(340_000)); // 300s since last hb → due
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].kind, EventKind::Heartbeat);
@@ -238,11 +258,15 @@ mod tests {
         // Was active, last heartbeat at 16:00; boot next day 08:00.
         let mut m = sm();
         m.p.reported_state = State::Active;
-        m.p.last_heartbeat = Some(16 * 3600_000);
-        let out = m.recover(32 * 3600_000); // +16h later
+        m.p.last_heartbeat = Some(16 * 3_600_000);
+        let out = m.recover(32 * 3_600_000); // +16h later
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].kind, EventKind::Idle);
-        assert_eq!(out[0].ts, 16 * 3600_000, "idle back-dated to last heartbeat");
+        assert_eq!(
+            out[0].ts,
+            16 * 3_600_000,
+            "idle back-dated to last heartbeat"
+        );
         assert_eq!(m.p.reported_state, State::Idle);
     }
 
@@ -250,7 +274,11 @@ mod tests {
     fn locked_session_goes_idle() {
         let mut m = sm();
         activate(&mut m, 0); // last_active = 40s
-        let out = m.step(Tick { now: 50_000, idle_ms: 0, locked: true });
+        let out = m.step(Tick {
+            now: 50_000,
+            idle_ms: 0,
+            locked: true,
+        });
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].kind, EventKind::Idle);
         assert_eq!(out[0].ts, 40_000, "idle back-dated to last real input");

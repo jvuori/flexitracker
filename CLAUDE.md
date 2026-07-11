@@ -57,4 +57,9 @@ This project MUST never incur any charge — not now, not after any trial or 12-
 <!-- Append an entry whenever a bug's root cause is identified, so it is never repeated.
      Format: - **Symptom** → root cause → fix/prevention. -->
 
-_None yet._
+- **UI served the static placeholder instead of the Worker-rendered app** → a
+  `wrangler.toml` `assets = { directory = "../ui" }` binding serves static files
+  first, so `/` resolved to `ui/index.html` and shadowed the Worker route. Fix:
+  the UI is fully Worker-rendered, so the assets binding was removed. If static
+  assets are reintroduced, use a non-root path or `run_worker_first` so `/` still
+  hits the Worker.

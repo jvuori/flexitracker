@@ -1,0 +1,54 @@
+name: Deploy QA
+
+# QA auto-deploys on every push to main, then the e2e suite runs against live QA.
+# A red e2e here is the signal that blocks promoting this commit to PROD.
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: qa
+  cancel-in-progress: true
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: qa
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+        working-directory: backend
+      - name: Deploy to QA
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: backend
+          command: deploy --env qa
+
+  e2e:
+    needs: deploy
+    runs-on: ubuntu-latest
+    environment: qa
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: End-to-end smoke against live QA
+        working-directory: backend
+        env:
+          BASE: ${{ vars.QA_BASE_URL }}
+          # Access service token for non-interactive auth on user routes.
+          CF_ACCESS_CLIENT_ID: ${{ secrets.QA_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.QA_ACCESS_CLIENT_SECRET }}
+        run: node e2e/smoke.mjs

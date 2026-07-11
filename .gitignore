@@ -11,3 +11,7 @@ target/
 # Local simulation state
 .dev-state/
 *.local
+
+# Screenshots / MCP artifacts
+.playwright-mcp/
+/*.png

@@ -17,12 +17,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use flexi_core::{ActivityEvent, EventKind, MachineDescriptor};
 
 use config::Config;
-use idle::{IdleSource, Sample, SimulatedIdle};
+use idle::{IdleSource, Sample};
 use outbox::Outbox;
 use state_machine::{Persisted, StateMachine, Tick};
 
 fn now_ms() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64
 }
 
 struct Args {
@@ -98,11 +101,11 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), String> {
-    let args = parse_args().map_err(|e| {
-        print_help();
-        e
-    })?;
-    let config_path = args.config_path.clone().unwrap_or_else(Config::default_path);
+    let args = parse_args().inspect_err(|_| print_help())?;
+    let config_path = args
+        .config_path
+        .clone()
+        .unwrap_or_else(Config::default_path);
 
     // Load or bootstrap the config from CLI flags.
     let mut cfg = Config::load(&config_path).ok().unwrap_or_else(|| Config {
@@ -119,9 +122,12 @@ fn run() -> Result<(), String> {
         cfg.backend_url = u;
     }
     if cfg.access_key.is_empty() || cfg.backend_url.is_empty() {
-        return Err("missing access key or backend url (pass --account-key and --backend-url once)".into());
+        return Err(
+            "missing access key or backend url (pass --account-key and --backend-url once)".into(),
+        );
     }
-    cfg.save(&config_path).map_err(|e| format!("cannot write config: {e}"))?;
+    cfg.save(&config_path)
+        .map_err(|e| format!("cannot write config: {e}"))?;
 
     // Refresh thresholds from the backend; fall back to cached/defaults offline.
     match sender::fetch_thresholds(&cfg.backend_url, &cfg.access_key, cfg.thresholds.poll_sec) {
@@ -156,7 +162,11 @@ fn run() -> Result<(), String> {
 
     loop {
         let s: Sample = source.sample().map_err(|e| format!("idle sample: {e}"))?;
-        let events = sm.step(Tick { now: now_ms(), idle_ms: s.idle_ms, locked: s.locked });
+        let events = sm.step(Tick {
+            now: now_ms(),
+            idle_ms: s.idle_ms,
+            locked: s.locked,
+        });
         ob.append(&events).map_err(|e| e.to_string())?;
         save_state(&state_path, &sm.p);
         flush(&cfg, &mut ob);
@@ -199,10 +209,22 @@ fn simulate(cfg: &Config, ob: &mut Outbox) -> Result<(), String> {
     let h = 3_600_000i64;
     // active 08:00–10:00, idle, active 13:00–16:00, idle.
     let events = vec![
-        ActivityEvent { ts: day + 8 * h, kind: EventKind::Active },
-        ActivityEvent { ts: day + 10 * h, kind: EventKind::Idle },
-        ActivityEvent { ts: day + 13 * h, kind: EventKind::Active },
-        ActivityEvent { ts: day + 16 * h, kind: EventKind::Idle },
+        ActivityEvent {
+            ts: day + 8 * h,
+            kind: EventKind::Active,
+        },
+        ActivityEvent {
+            ts: day + 10 * h,
+            kind: EventKind::Idle,
+        },
+        ActivityEvent {
+            ts: day + 13 * h,
+            kind: EventKind::Active,
+        },
+        ActivityEvent {
+            ts: day + 16 * h,
+            kind: EventKind::Idle,
+        },
     ];
     ob.append(&events).map_err(|e| e.to_string())?;
     match sender::post_batch(&cfg.backend_url, &cfg.access_key, &ob.next_batch().unwrap()) {

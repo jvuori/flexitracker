@@ -13,12 +13,14 @@ pub trait IdleSource {
 }
 
 /// Replays a scripted sequence of samples (local simulation / tests).
+#[allow(dead_code)] // used by tests and available for local scripted runs
 pub struct SimulatedIdle {
     samples: Vec<Sample>,
     i: usize,
 }
 
 impl SimulatedIdle {
+    #[allow(dead_code)]
     pub fn new(samples: Vec<Sample>) -> Self {
         Self { samples, i: 0 }
     }
@@ -29,8 +31,14 @@ impl IdleSource for SimulatedIdle {
         let s = self
             .samples
             .get(self.i)
-            .map(|s| Sample { idle_ms: s.idle_ms, locked: s.locked })
-            .unwrap_or(Sample { idle_ms: i64::MAX, locked: false });
+            .map(|s| Sample {
+                idle_ms: s.idle_ms,
+                locked: s.locked,
+            })
+            .unwrap_or(Sample {
+                idle_ms: i64::MAX,
+                locked: false,
+            });
         self.i += 1;
         Ok(s)
     }
@@ -62,12 +70,22 @@ mod tests {
     #[test]
     fn simulated_replays_then_reports_idle() {
         let mut s = SimulatedIdle::new(vec![
-            Sample { idle_ms: 0, locked: false },
-            Sample { idle_ms: 5000, locked: false },
+            Sample {
+                idle_ms: 0,
+                locked: false,
+            },
+            Sample {
+                idle_ms: 5000,
+                locked: false,
+            },
         ]);
         assert_eq!(s.sample().unwrap().idle_ms, 0);
         assert_eq!(s.sample().unwrap().idle_ms, 5000);
-        assert_eq!(s.sample().unwrap().idle_ms, i64::MAX, "exhausted → very idle");
+        assert_eq!(
+            s.sample().unwrap().idle_ms,
+            i64::MAX,
+            "exhausted → very idle"
+        );
     }
 }
 
@@ -93,28 +111,41 @@ mod linux {
     impl LinuxIdle {
         pub fn new() -> std::io::Result<Self> {
             unsafe {
-                let err = |m: &str| std::io::Error::new(std::io::ErrorKind::Other, m.to_string());
+                let err = |m: &str| std::io::Error::other(m.to_string());
                 let x11 = Library::new("libX11.so.6").map_err(|e| err(&e.to_string()))?;
                 let xss = Library::new("libXss.so.1").map_err(|e| err(&e.to_string()))?;
 
                 let open: Symbol<unsafe extern "C" fn(*const i8) -> *mut c_void> =
                     x11.get(b"XOpenDisplay").map_err(|e| err(&e.to_string()))?;
-                let root_fn: Symbol<unsafe extern "C" fn(*mut c_void) -> c_ulong> =
-                    x11.get(b"XDefaultRootWindow").map_err(|e| err(&e.to_string()))?;
-                let alloc: Symbol<unsafe extern "C" fn() -> *mut c_void> =
-                    xss.get(b"XScreenSaverAllocInfo").map_err(|e| err(&e.to_string()))?;
+                let root_fn: Symbol<unsafe extern "C" fn(*mut c_void) -> c_ulong> = x11
+                    .get(b"XDefaultRootWindow")
+                    .map_err(|e| err(&e.to_string()))?;
+                let alloc: Symbol<unsafe extern "C" fn() -> *mut c_void> = xss
+                    .get(b"XScreenSaverAllocInfo")
+                    .map_err(|e| err(&e.to_string()))?;
                 let query: Symbol<
                     unsafe extern "C" fn(*mut c_void, c_ulong, *mut c_void) -> c_int,
-                > = xss.get(b"XScreenSaverQueryInfo").map_err(|e| err(&e.to_string()))?;
+                > = xss
+                    .get(b"XScreenSaverQueryInfo")
+                    .map_err(|e| err(&e.to_string()))?;
 
                 let display = open(std::ptr::null());
                 if display.is_null() {
-                    return Err(err("cannot open X display (set DISPLAY, or use --simulate)"));
+                    return Err(err(
+                        "cannot open X display (set DISPLAY, or use --simulate)",
+                    ));
                 }
                 let root = root_fn(display);
                 let info = alloc();
                 let query = *query;
-                Ok(Self { _x11: x11, _xss: xss, display, root, info, query })
+                Ok(Self {
+                    _x11: x11,
+                    _xss: xss,
+                    display,
+                    root,
+                    info,
+                    query,
+                })
             }
         }
     }
@@ -124,7 +155,10 @@ mod linux {
             unsafe {
                 (self.query)(self.display, self.root, self.info);
                 let idle_ptr = (self.info as *const u8).add(IDLE_OFFSET) as *const c_ulong;
-                Ok(Sample { idle_ms: *idle_ptr as i64, locked: false })
+                Ok(Sample {
+                    idle_ms: *idle_ptr as i64,
+                    locked: false,
+                })
             }
         }
     }
@@ -155,7 +189,10 @@ mod windows_impl {
                     return Err(std::io::Error::last_os_error());
                 }
                 let idle_ms = GetTickCount().wrapping_sub(info.dwTime) as i64;
-                Ok(Sample { idle_ms, locked: false })
+                Ok(Sample {
+                    idle_ms,
+                    locked: false,
+                })
             }
         }
     }

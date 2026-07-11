@@ -17,7 +17,12 @@ pub struct ThresholdCfg {
 
 impl Default for ThresholdCfg {
     fn default() -> Self {
-        Self { poll_sec: 15, min_inactivity_sec: 600, min_activity_sec: 30, heartbeat_sec: 300 }
+        Self {
+            poll_sec: 15,
+            min_inactivity_sec: 600,
+            min_activity_sec: 30,
+            heartbeat_sec: 300,
+        }
     }
 }
 
@@ -52,7 +57,10 @@ impl Config {
         let base = std::env::var("HOME")
             .or_else(|_| std::env::var("APPDATA"))
             .unwrap_or_else(|_| ".".into());
-        Path::new(&base).join(".config").join("flexi-worker").join("config.toml")
+        Path::new(&base)
+            .join(".config")
+            .join("flexi-worker")
+            .join("config.toml")
     }
 
     pub fn load(path: &Path) -> std::io::Result<Config> {

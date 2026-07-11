@@ -11,8 +11,6 @@ main = "src/index.ts"
 compatibility_date = "2024-11-01"
 compatibility_flags = ["nodejs_compat"]
 
-# Static UI (node-free HTMX) served alongside the Worker.
-assets = { directory = "../ui" }
 
 [vars]
 DEV_MODE = "1"
@@ -35,7 +33,6 @@ database_id = "local-dev"          # replaced by real ids in qa/prod
 # ---- QA: auto-deployed on every push to main ----
 [env.qa]
 name = "flexi-worker-cloud-qa"
-assets = { directory = "../ui" }
 
 [env.qa.vars]
 DEV_MODE = "0"
@@ -58,7 +55,6 @@ database_id = "REPLACE_WITH_QA_D1_ID"
 # ---- PROD: deployed only on explicit manual trigger ----
 [env.prod]
 name = "flexi-worker-cloud-prod"
-assets = { directory = "../ui" }
 
 [env.prod.vars]
 DEV_MODE = "0"
