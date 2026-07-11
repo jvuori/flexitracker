@@ -50,7 +50,7 @@ new_sqlite_classes = ["TenantDO"]
 [[env.qa.d1_databases]]
 binding = "REGISTRY"
 database_name = "flexi-registry-qa"
-database_id = "REPLACE_WITH_QA_D1_ID"
+database_id = "980270e5-a098-4f27-9451-9b4b8635c35f"
 
 # ---- PROD: deployed only on explicit manual trigger ----
 [env.prod]
@@ -71,4 +71,4 @@ new_sqlite_classes = ["TenantDO"]
 [[env.prod.d1_databases]]
 binding = "REGISTRY"
 database_name = "flexi-registry-prod"
-database_id = "REPLACE_WITH_PROD_D1_ID"
+database_id = "194c3af0-4eb1-4e07-a1f9-0e03cdfc49c5"
