@@ -1,0 +1,13 @@
+# Node / Cloudflare
+node_modules/
+.wrangler/
+dist/
+*.log
+
+# Rust
+/daemon/target/
+target/
+
+# Local simulation state
+.dev-state/
+*.local

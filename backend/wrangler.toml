@@ -1,0 +1,40 @@
+# Two isolated environments (deployment-pipeline spec). Named environments do
+# NOT inherit top-level bindings, so DO bindings + migrations are repeated per
+# env. The top-level config is used by `wrangler dev` (local simulation).
+
+name = "flexi-worker-cloud"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[durable_objects.bindings]]
+name = "TENANT"
+class_name = "TenantDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TenantDO"]
+
+# ---- QA: auto-deployed on every push to main ----
+[env.qa]
+name = "flexi-worker-cloud-qa"
+
+[[env.qa.durable_objects.bindings]]
+name = "TENANT"
+class_name = "TenantDO"
+
+[[env.qa.migrations]]
+tag = "v1"
+new_sqlite_classes = ["TenantDO"]
+
+# ---- PROD: deployed only on explicit manual trigger ----
+[env.prod]
+name = "flexi-worker-cloud-prod"
+
+[[env.prod.durable_objects.bindings]]
+name = "TENANT"
+class_name = "TenantDO"
+
+[[env.prod.migrations]]
+tag = "v1"
+new_sqlite_classes = ["TenantDO"]
