@@ -12,3 +12,17 @@ path = "src/main.rs"
 flexi-core = { path = "../flexi-core" }
 serde = { workspace = true }
 serde_json = { workspace = true }
+toml = "0.8"
+ureq = { version = "2", features = ["json", "tls"] }
+
+# Linux idle detection loads X libraries at runtime (dlopen) — no link-time X
+# dependency, mirroring the predecessor's ctypes approach.
+[target.'cfg(target_os = "linux")'.dependencies]
+libloading = "0.8"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_System_SystemInformation",
+  "Win32_UI_Input_KeyboardAndMouse",
+] }

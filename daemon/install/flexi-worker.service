@@ -1,0 +1,13 @@
+[Unit]
+Description=flexi-worker activity daemon
+After=graphical-session.target
+
+[Service]
+Type=simple
+# Idle detection needs the user's graphical session (X11). Adjust the path.
+ExecStart=%h/.local/bin/flexi-worker --account-key REPLACE_KEY --backend-url https://REPLACE_HOST
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

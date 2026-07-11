@@ -45,12 +45,12 @@
 
 ## 7. Rust daemon
 
-- [ ] 7.1 Implement OS idle detection (Windows `GetLastInputInfo`; Linux XScreenSaver) and session lock/logout detection, with no input-content capture
-- [ ] 7.2 Implement the debounced hysteresis state machine with back-dated transitions and heartbeats
-- [ ] 7.3 Implement persisted `last_active_time` / `last_reported_state` and reboot/crash reconciliation on startup
-- [ ] 7.4 Implement the permission-restricted config file `{account_id, machine_id, access_key, cached settings}` and startup settings fetch with offline fallback
-- [ ] 7.5 Implement the durable local outbox with whole-queue flush on reconnect and monotonic `batch_seq`
-- [ ] 7.6 Ensure minimal footprint (no per-poll process spawns); build a plain exe and auto-start-on-login scripts/instructions (Windows first, Linux)
+- [x] 7.1 Implement OS idle detection (Windows `GetLastInputInfo`; Linux XScreenSaver) and session lock/logout detection, with no input-content capture
+- [x] 7.2 Implement the debounced hysteresis state machine with back-dated transitions and heartbeats
+- [x] 7.3 Implement persisted `last_active_time` / `last_reported_state` and reboot/crash reconciliation on startup
+- [x] 7.4 Implement the permission-restricted config file `{account_id, machine_id, access_key, cached settings}` and startup settings fetch with offline fallback
+- [x] 7.5 Implement the durable local outbox with whole-queue flush on reconnect and monotonic `batch_seq`
+- [x] 7.6 Ensure minimal footprint (no per-poll process spawns); build a plain exe and auto-start-on-login scripts/instructions (Windows first, Linux)
 
 ## 8. Web UI (HTMX on Pages)
 

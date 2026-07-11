@@ -50,6 +50,21 @@ app.post("/ingest", async (c) => {
   return c.json({ ok: true, batch_seq: batch.batch_seq, duplicate });
 });
 
+// ---- daemon config (access-key auth) — thresholds pushed from settings --
+app.get("/config", async (c) => {
+  await ready(c.env);
+  const auth = c.req.header("authorization") ?? "";
+  const key = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  const resolved = key ? await resolveKey(c.env.REGISTRY, key) : null;
+  if (!resolved) return c.json({ error: "invalid access key" }, 401);
+  const s = await tenant(c.env, resolved.account_id).getSettings();
+  return c.json({
+    minInactivitySec: s.minInactivitySec,
+    minActivitySec: s.minActivitySec,
+    heartbeatSec: s.heartbeatSec,
+  });
+});
+
 // ---- authenticated user API --------------------------------------------
 const api = new Hono<{ Bindings: Env; Variables: { identity: Identity; accountId: string } }>();
 
