@@ -1,11 +1,23 @@
 # Two isolated environments (deployment-pipeline spec). Named environments do
-# NOT inherit top-level bindings, so DO bindings + migrations are repeated per
+# NOT inherit top-level bindings, so DO/D1 bindings + migrations are repeated per
 # env. The top-level config is used by `wrangler dev` (local simulation).
+#
+# Before first deploy, create the D1 databases and paste their ids below:
+#   wrangler d1 create flexi-registry-qa
+#   wrangler d1 create flexi-registry-prod
 
 name = "flexi-worker-cloud"
 main = "src/index.ts"
 compatibility_date = "2024-11-01"
 compatibility_flags = ["nodejs_compat"]
+
+# Static UI (node-free HTMX) served alongside the Worker.
+assets = { directory = "../ui" }
+
+[vars]
+DEV_MODE = "1"
+DEV_IDENTITY = "dev@local"
+ADMIN_EMAILS = "dev@local,jaakko.vuori@gmail.com"
 
 [[durable_objects.bindings]]
 name = "TENANT"
@@ -15,9 +27,20 @@ class_name = "TenantDO"
 tag = "v1"
 new_sqlite_classes = ["TenantDO"]
 
+[[d1_databases]]
+binding = "REGISTRY"
+database_name = "flexi-registry-dev"
+database_id = "local-dev"          # replaced by real ids in qa/prod
+
 # ---- QA: auto-deployed on every push to main ----
 [env.qa]
 name = "flexi-worker-cloud-qa"
+assets = { directory = "../ui" }
+
+[env.qa.vars]
+DEV_MODE = "0"
+ADMIN_EMAILS = "jaakko.vuori@gmail.com"
+# ACCESS_TEAM_DOMAIN / ACCESS_AUD set as secrets/vars at deploy time.
 
 [[env.qa.durable_objects.bindings]]
 name = "TENANT"
@@ -27,9 +50,19 @@ class_name = "TenantDO"
 tag = "v1"
 new_sqlite_classes = ["TenantDO"]
 
+[[env.qa.d1_databases]]
+binding = "REGISTRY"
+database_name = "flexi-registry-qa"
+database_id = "REPLACE_WITH_QA_D1_ID"
+
 # ---- PROD: deployed only on explicit manual trigger ----
 [env.prod]
 name = "flexi-worker-cloud-prod"
+assets = { directory = "../ui" }
+
+[env.prod.vars]
+DEV_MODE = "0"
+ADMIN_EMAILS = "jaakko.vuori@gmail.com"
 
 [[env.prod.durable_objects.bindings]]
 name = "TENANT"
@@ -38,3 +71,8 @@ class_name = "TenantDO"
 [[env.prod.migrations]]
 tag = "v1"
 new_sqlite_classes = ["TenantDO"]
+
+[[env.prod.d1_databases]]
+binding = "REGISTRY"
+database_name = "flexi-registry-prod"
+database_id = "REPLACE_WITH_PROD_D1_ID"

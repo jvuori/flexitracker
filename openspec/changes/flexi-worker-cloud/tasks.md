@@ -8,24 +8,24 @@
 ## 2. Identity, access & registry
 
 - [ ] 2.1 Configure Cloudflare Access with Google IdP; policy allowing any Google account on user routes and an owner-email allowlist on `/admin/*`
-- [ ] 2.2 Implement the global registry: `google_sub → account_id` and `access_key → (account_id, machine_id)` with strong-consistency reads
-- [ ] 2.3 Implement first-login account minting (stable internal `account_id` from `sub`; store email for display only)
-- [ ] 2.4 Implement per-machine access-key issuance and revocation, including the ready-to-run agent-config command shown in the UI
-- [ ] 2.5 Implement the Worker re-check of the Access identity/email for admin routes (defense in depth)
+- [x] 2.2 Implement the global registry: `google_sub → account_id` and `access_key → (account_id, machine_id)` with strong-consistency reads
+- [x] 2.3 Implement first-login account minting (stable internal `account_id` from `sub`; store email for display only)
+- [x] 2.4 Implement per-machine access-key issuance and revocation, including the ready-to-run agent-config command shown in the UI
+- [x] 2.5 Implement the Worker re-check of the Access identity/email for admin routes (defense in depth)
 
 ## 3. Tenant storage (Durable Object)
 
-- [ ] 3.1 Define the tenant SQLite schema: `event`, `correction`, `account_settings`, `machine`, `session`, `daily_rollup`
-- [ ] 3.2 Implement DO addressing by internal `account_id` and machine self-registration on first batch
-- [ ] 3.3 Implement the DO Alarm lifecycle: seal completed days, recompute dirty days, prune raw events past the edit window
-- [ ] 3.4 Implement tiered retention so reads are served from sessions/rollups and pruned raw is never scanned
+- [x] 3.1 Define the tenant SQLite schema: `event`, `correction`, `account_settings`, `machine`, `session`, `daily_rollup`
+- [x] 3.2 Implement DO addressing by internal `account_id` and machine self-registration on first batch
+- [x] 3.3 Implement the DO Alarm lifecycle: seal completed days, recompute dirty days, prune raw events past the edit window
+- [x] 3.4 Implement tiered retention so reads are served from sessions/rollups and pruned raw is never scanned
 
 ## 4. Event ingestion (Worker write path)
 
-- [ ] 4.1 Implement access-key authentication and rejection of unknown/revoked keys
-- [ ] 4.2 Implement thin routing of authenticated writes to the resolved tenant DO
-- [ ] 4.3 Implement idempotent `(machine_id, batch_seq)` deduplication
-- [ ] 4.4 Store both daemon `ts` and server `received_at` on each event
+- [x] 4.1 Implement access-key authentication and rejection of unknown/revoked keys
+- [x] 4.2 Implement thin routing of authenticated writes to the resolved tenant DO
+- [x] 4.3 Implement idempotent `(machine_id, batch_seq)` deduplication
+- [x] 4.4 Store both daemon `ts` and server `received_at` on each event
 
 ## 5. Worktime calculation & rules
 
@@ -38,10 +38,10 @@
 
 ## 6. Manual corrections
 
-- [ ] 6.1 Implement `add_work` / `remove_work` correction records with provenance, authored only via the authenticated session
+- [x] 6.1 Implement `add_work` / `remove_work` correction records with provenance, authored only via the authenticated session
 - [x] 6.2 Compose working time from its four sources (sensor-active, auto-bridged, manual-added, minus manual-removed) with manual removal overriding, and tag each derived period with its source for display/audit
-- [ ] 6.3 Mark affected day dirty on create/delete and support undo-by-deletion
-- [ ] 6.4 Enforce that raw events are never mutated and that raw-granularity edits are unavailable past the retention window
+- [x] 6.3 Mark affected day dirty on create/delete and support undo-by-deletion
+- [x] 6.4 Enforce that raw events are never mutated and that raw-granularity edits are unavailable past the retention window
 
 ## 7. Rust daemon
 
@@ -54,22 +54,22 @@
 
 ## 8. Web UI (HTMX on Pages)
 
-- [ ] 8.1 Scaffold the node-free HTMX app reading the Cloudflare Access identity assertion
-- [ ] 8.2 Implement the current-status view from latest cross-machine events
-- [ ] 8.3 Implement the default week view with per-day balances, weekly total, and week navigation
-- [ ] 8.4 Implement the day timeline with corrections overlaid and an edit mode (select period → mark working/private + note)
-- [ ] 8.5 Implement the settings screen (timezone, working days, daily/weekly norms, lunch deduction + threshold, daemon thresholds) with browser-timezone pre-fill on first setup
+- [x] 8.1 Scaffold the node-free HTMX app reading the Cloudflare Access identity assertion
+- [x] 8.2 Implement the current-status view from latest cross-machine events
+- [x] 8.3 Implement the default week view with per-day balances, weekly total, and week navigation
+- [x] 8.4 Implement the day timeline with corrections overlaid and an edit mode (select period → mark working/private + note)
+- [x] 8.5 Implement the settings screen (timezone, working days, daily/weekly norms, lunch deduction + threshold, daemon thresholds) with browser-timezone pre-fill on first setup
 
 ## 9. Admin console
 
-- [ ] 9.1 Implement the registered-users overview (email, created, machine count, last seen) from the global registry
+- [x] 9.1 Implement the registered-users overview (email, created, machine count, last seen) from the global registry
 - [ ] 9.2 Implement per-account machine/key views and key revocation
 - [ ] 9.3 Record admin mutations with admin identity and timestamp
 
 ## 10. Local simulation harness (establish early)
 
-- [ ] 10.1 Run the full stack locally via wrangler/Miniflare with persisted local Durable Object SQLite storage
-- [ ] 10.2 Implement a configurable local identity stub that replaces Cloudflare Access in local mode
+- [x] 10.1 Run the full stack locally via wrangler/Miniflare with persisted local Durable Object SQLite storage
+- [x] 10.2 Implement a configurable local identity stub that replaces Cloudflare Access in local mode
 - [ ] 10.3 Build a synthetic-activity generator (multi-day; breaks, meetings, evening work; multi-machine) that posts through the real ingest pipeline
 - [ ] 10.4 Verify local browser viewing and bridging/correction round-trips match deployed behavior on both laptop and mobile widths
 
