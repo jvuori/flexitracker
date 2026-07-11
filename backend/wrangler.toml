@@ -37,7 +37,8 @@ name = "flexi-worker-cloud-qa"
 [env.qa.vars]
 DEV_MODE = "0"
 ADMIN_EMAILS = "jaakko.vuori@gmail.com"
-# ACCESS_TEAM_DOMAIN / ACCESS_AUD set as secrets/vars at deploy time.
+ACCESS_TEAM_DOMAIN = "flexi-worker-team.cloudflareaccess.com"
+ACCESS_AUD = "75ada7e725c5e2c16fe2cc0a46f3632ff58b57587fbd2e477d137d095b4408b5"
 
 [[env.qa.durable_objects.bindings]]
 name = "TENANT"
@@ -59,6 +60,10 @@ name = "flexi-worker-cloud-prod"
 [env.prod.vars]
 DEV_MODE = "0"
 ADMIN_EMAILS = "jaakko.vuori@gmail.com"
+ACCESS_TEAM_DOMAIN = "flexi-worker-team.cloudflareaccess.com"
+# PROD gets its OWN Access application → its OWN AUD. Fill this in when you
+# create the prod Access app for flexi-worker-cloud-prod.<sub>.workers.dev.
+ACCESS_AUD = "REPLACE_WITH_PROD_AUD"
 
 [[env.prod.durable_objects.bindings]]
 name = "TENANT"
