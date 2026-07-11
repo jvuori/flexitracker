@@ -29,17 +29,17 @@
 
 ## 5. Worktime calculation & rules
 
-- [ ] 5.1 Implement timezone-authoritative day/week bucketing (store UTC; compute in account timezone)
-- [ ] 5.2 Implement span pairing from transitions and heartbeat-bounded open spans
-- [ ] 5.3 Implement min-active-span drop and presence-based gap bridging (in-hours: bridge up to the private-leave threshold; out-of-hours: no bridging, active spans only), retaining excluded in-hours gaps as reviewable candidates
-- [ ] 5.4 Implement cross-midnight split and conditional lunch deduction
-- [ ] 5.5 Implement single-week (Mon–Sun) daily balances and weekly total against configurable norms; exact + rounded-to-0.5h presentation
-- [ ] 5.6 Port edge-case tests from the predecessor `workdays.py` / `activity_monitor.py` (back-dating, sudden-shutdown recovery, orphan spans, cross-midnight)
+- [x] 5.1 Implement timezone-authoritative day/week bucketing (store UTC; compute in account timezone)
+- [x] 5.2 Implement span pairing from transitions and heartbeat-bounded open spans
+- [x] 5.3 Implement min-active-span drop and presence-based gap bridging (in-hours: bridge up to the private-leave threshold; out-of-hours: no bridging, active spans only), retaining excluded in-hours gaps as reviewable candidates
+- [x] 5.4 Implement cross-midnight split and conditional lunch deduction
+- [x] 5.5 Implement single-week (Mon–Sun) daily balances and weekly total against configurable norms; exact + rounded-to-0.5h presentation
+- [x] 5.6 Port edge-case tests from the predecessor `workdays.py` / `activity_monitor.py` (back-dating, sudden-shutdown recovery, orphan spans, cross-midnight)
 
 ## 6. Manual corrections
 
 - [ ] 6.1 Implement `add_work` / `remove_work` correction records with provenance, authored only via the authenticated session
-- [ ] 6.2 Compose working time from its four sources (sensor-active, auto-bridged, manual-added, minus manual-removed) with manual removal overriding, and tag each derived period with its source for display/audit
+- [x] 6.2 Compose working time from its four sources (sensor-active, auto-bridged, manual-added, minus manual-removed) with manual removal overriding, and tag each derived period with its source for display/audit
 - [ ] 6.3 Mark affected day dirty on create/delete and support undo-by-deletion
 - [ ] 6.4 Enforce that raw events are never mutated and that raw-granularity edits are unavailable past the retention window
 
