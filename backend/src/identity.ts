@@ -36,9 +36,11 @@ export async function requireIdentity(request: Request, env: Env): Promise<Ident
     throw new Error("ACCESS_TEAM_DOMAIN and ACCESS_AUD must be configured");
   }
   const claims = await verifyAccessJwt(token, env.ACCESS_TEAM_DOMAIN, env.ACCESS_AUD);
-  const email = typeof claims.email === "string" ? claims.email : null;
-  const sub = typeof claims.sub === "string" ? claims.sub : null;
-  if (!email || !sub) throw new UnauthorizedError("Access token missing sub/email");
+  const str = (v: unknown) => (typeof v === "string" && v ? v : null);
+  // Service tokens (non-interactive, e.g. CI) carry common_name, not email.
+  const sub = str(claims.sub) ?? str(claims.common_name);
+  const email = str(claims.email) ?? str(claims.common_name) ?? sub;
+  if (!sub || !email) throw new UnauthorizedError("Access token missing sub/email");
   return { sub, email };
 }
 
