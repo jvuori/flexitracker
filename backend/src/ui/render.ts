@@ -81,6 +81,7 @@ main{max-width:900px;margin:0 auto;padding:1rem}
 .seg.auto_bridged{background:repeating-linear-gradient(45deg,var(--bridged) 0 5px,transparent 5px 10px),var(--idle)}
 .seg.manual_added{background:var(--manual)}
 .seg.review{background:var(--review);opacity:.5}
+.seg.removed{background:repeating-linear-gradient(45deg,var(--review) 0 4px,rgba(127,127,127,.12) 4px 8px)}
 .hours{position:relative;height:.85rem;margin-top:2px;font-size:.6rem;color:var(--muted)}
 .hours span{position:absolute;transform:translateX(-50%)}
 .hours span:first-child{transform:none}.hours span:last-child{transform:translateX(-100%)}
@@ -90,6 +91,7 @@ main{max-width:900px;margin:0 auto;padding:1rem}
 .legend span{display:inline-flex;align-items:center;gap:.3rem;color:var(--muted)}
 .swatch{width:.8rem;height:.8rem;border-radius:2px;display:inline-block}
 .swatch.auto_bridged{background:repeating-linear-gradient(45deg,var(--bridged) 0 3px,transparent 3px 6px),var(--idle)}
+.swatch.removed{background:repeating-linear-gradient(45deg,var(--review) 0 3px,rgba(127,127,127,.12) 3px 6px)}
 @media (max-width:640px){.summary{grid-template-columns:repeat(2,1fr)}
  .lane-head{grid-template-columns:1fr auto;grid-template-areas:"dl nums" "tl tl";row-gap:.45rem}
  .dl{grid-area:dl}.nums{grid-area:nums}.tl{grid-area:tl}}
@@ -166,6 +168,7 @@ function dayLane(d,i,now){
  const seg=(s,e,cls)=>'<div class="seg '+cls+'" style="left:'+pct(s)+'%;width:'+(pct(e)-pct(s))+'%"></div>';
  let bars='';
  for(const g of d.reviewableGaps)bars+=seg(g.start,g.end,'review');
+ for(const g of d.removedSpans)bars+=seg(g.start,g.end,'removed');
  for(const sp of d.spans)bars+=seg(sp.start,sp.end,sp.provenance);
  let hrs='';for(let h=0;h<=24;h++)hrs+='<span style="left:'+(h/24*100)+'%">'+h+'</span>';
  const balCls=d.balanceMs>=0?'pos':'neg';
@@ -190,12 +193,19 @@ function buildDetail(c,d){
  c.append(el('<div class="legend"><span><i class="swatch" style="background:var(--sensor)"></i>measured</span>'+
    '<span><i class="swatch auto_bridged"></i>auto-bridged</span>'+
    '<span><i class="swatch" style="background:var(--manual)"></i>manual</span>'+
-   '<span><i class="swatch" style="background:var(--review);opacity:.6"></i>excluded (review)</span></div>'));
- if(d.reviewableGaps.length===0 && d.spans.length===0)c.append(el('<div class="muted">No activity.</div>'));
+   '<span><i class="swatch" style="background:var(--review);opacity:.6"></i>excluded (review)</span>'+
+   '<span><i class="swatch removed"></i>excluded (removed)</span></div>'));
+ if(d.reviewableGaps.length===0 && d.removedSpans.length===0 && d.spans.length===0)c.append(el('<div class="muted">No activity.</div>'));
  for(const g of d.reviewableGaps){
-  const r=el('<div class="row"><span>Excluded '+clock(g.start)+'–'+clock(g.end)+' ('+hm(g.end-g.start)+')</span>'+
+  const r=el('<div class="row"><span>Excluded '+clock(g.start)+'–'+clock(g.end)+' ('+hm(g.end-g.start)+') — auto</span>'+
     '<button class="act">Include as work</button></div>');
   r.querySelector('button').onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:g.start,end:g.end,note:'reviewed'})});reload();};
+  c.append(r);
+ }
+ for(const g of d.removedSpans){
+  const r=el('<div class="row"><span>Removed '+clock(g.start)+'–'+clock(g.end)+' ('+hm(g.end-g.start)+') — marked private</span>'+
+    '<button class="act">Re-include as work</button></div>');
+  r.querySelector('button').onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:g.start,end:g.end,note:'re-included'})});reload();};
   c.append(r);
  }
  const form=el('<div class="card"><b>Correct this day</b>'+

@@ -118,6 +118,20 @@ describe("computeDay corrections", () => {
     expect(d.grossMs).toBe(7 * H); // 8h − 1h (14–15 still removed)
     expect(provMs(d.spans, "manual_added")).toBe(1 * H); // 15–16 re-added as manual
   });
+
+  it("surfaces removed activity as removedSpans, cleared once re-added", () => {
+    const rm: Correction = { kind: "remove_work", start: at(14), end: at(15) };
+    const d = computeDay([active(8, 0, 16, 0)], [rm], day, S, 0);
+    expect(d.removedSpans).toEqual([{ start: at(14), end: at(15) }]); // excluded, shown amber
+    const d2 = computeDay(
+      [active(8, 0, 16, 0)],
+      [rm, { kind: "add_work", start: at(14), end: at(15) }],
+      day,
+      S,
+      0,
+    );
+    expect(d2.removedSpans).toEqual([]); // re-added → no longer excluded
+  });
 });
 
 describe("lunch and norms", () => {

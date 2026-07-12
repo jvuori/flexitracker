@@ -31,6 +31,8 @@ export interface DayResult {
   rawActive: Interval[];
   /** In-hours gaps excluded as private leave and available to reclassify. */
   reviewableGaps: Interval[];
+  /** Measured/bridged time excluded by a remove_work and not re-added. */
+  removedSpans: Interval[];
   isWorkingDay: boolean;
   grossMs: number; // sum of spans before lunch
   lunchMs: number; // deduction applied
@@ -129,7 +131,8 @@ export function computeDay(
   //    an add_work over it re-includes that time as manual — so an explicit
   //    add_work overrides a remove_work, and the re-added period stays a distinct
   //    manual span (never merged back into the sensor it once was).
-  const survivingCovered = subtract(mergeIntervals([...sensor, ...bridged]), removes);
+  const covered = mergeIntervals([...sensor, ...bridged]);
+  const survivingCovered = subtract(covered, removes);
   const manualAdded = subtract(adds, survivingCovered);
 
   const spans: Span[] = [
@@ -137,6 +140,12 @@ export function computeDay(
     ...tag(subtract(bridged, removes), "auto_bridged"),
     ...tag(manualAdded, "manual_added"),
   ].sort((a, b) => a.start - b.start);
+
+  // Activity a remove_work excluded (and that no add_work has re-included):
+  // measured/bridged time that no longer counts, surfaced as an "excluded" band.
+  const removedSpans = subtract(subtract(covered, survivingCovered), adds).sort(
+    (a, b) => a.start - b.start,
+  );
 
   // A reviewable gap the user included is no longer reviewable.
   const reviewableGaps = subtract(reviewable, adds);
@@ -153,6 +162,7 @@ export function computeDay(
     spans,
     rawActive,
     reviewableGaps,
+    removedSpans,
     isWorkingDay,
     grossMs,
     lunchMs,
