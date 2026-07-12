@@ -4,7 +4,7 @@ name: Deploy QA
 # A red e2e here is the signal that blocks promoting this commit to PROD.
 on:
   push:
-    branches: [main]
+    branches: [master]
 
 concurrency:
   group: qa

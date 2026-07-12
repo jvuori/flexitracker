@@ -19,7 +19,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               workflow_id: 'deploy-qa.yml',
-              branch: 'main',
+              branch: 'master',
               status: 'success',
               per_page: 1,
             });

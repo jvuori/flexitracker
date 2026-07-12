@@ -1,9 +1,10 @@
 name: CI
 
-# Unit tests + typecheck on every push and PR. Blocks deployment on failure.
+# Unit tests + typecheck. Runs on PRs and is called by deploy-qa on master push
+# (which is where the master build gets its CI), so no duplicate runs.
 on:
-  push:
   pull_request:
+  workflow_call:
 
 jobs:
   backend:
