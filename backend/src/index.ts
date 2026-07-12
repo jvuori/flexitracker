@@ -187,12 +187,17 @@ test.post("/reset", async (c) => {
   await tenant(c.env, c.get("acct")).reset();
   return c.json({ ok: true });
 });
-// Mint another machine key under the same account (multi-machine fixtures,
-// no manual UI step).
+// Mint (or reuse) a machine key under the same account (multi-machine fixtures,
+// no manual UI step). Idempotent by label so repeated deploys don't accumulate
+// keys in the registry.
 test.post("/machine", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { label?: string };
-  const key = await issueKey(c.env.REGISTRY, c.get("acct"), body.label ?? "fixture");
-  return c.json(key);
+  const label = body.label ?? "fixture";
+  const acct = c.get("acct");
+  const existing = (await listKeys(c.env.REGISTRY, acct)).find(
+    (k) => k.label === label && k.revoked_at === null,
+  );
+  return c.json(existing ?? (await issueKey(c.env.REGISTRY, acct, label)));
 });
 test.post("/correction", async (c) => {
   const b = (await c.req.json()) as {
