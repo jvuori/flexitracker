@@ -24,6 +24,20 @@ This project MUST never incur any charge — not now, not after any trial or 12-
 - **PROD deploys ONLY on explicit manual instruction from the user.** Never deploy PROD automatically or on your own initiative.
 - After QA deploy, the **end-to-end suite runs against live QA** (ingest → seal → week view → correction round-trip); PROD is gated on it passing.
 
+## Cloudflare changes go through GitHub Actions (mandatory)
+
+**All Cloudflare operations — deploys AND infrastructure (Access apps/policies, D1, bindings) — are performed by version-controlled scripts run in GitHub Actions, never by ad-hoc dashboard clicks or local `wrangler` commands.** Reproducible, reviewable, no config drift.
+
+- Deploys: `deploy-qa.yml` (auto on `main`), `deploy-prod.yml` (manual dispatch, gated).
+- Access bypass apps: `provision-access.yml` (manual dispatch) → `backend/tools/setup-access-bypass.mjs` (idempotent).
+- New Cloudflare infra ⇒ add/extend a script in `backend/tools/` + a workflow; do **not** run it by hand.
+- The **only** allowed manual bootstrap (chicken-and-egg / secret-bearing, done once):
+  1. creating the `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` GitHub secrets,
+  2. the Google IdP + the main Access application (its generated **AUD** is then committed to `wrangler.toml`),
+  3. `wrangler d1 create` for the two registry DBs (their ids are committed to `wrangler.toml`).
+  Everything after that is codified. (The initial QA `wrangler deploy` done during setup was a one-off bootstrap; henceforth deploys go through Actions.)
+- **Required `CLOUDFLARE_API_TOKEN` scopes:** Account · *Workers Scripts: Edit*, *D1: Edit*, *Access: Apps and Policies: Edit*, *Account Settings: Read*.
+
 ## Local development
 
 - The full stack runs locally on the Cloudflare local runtime (wrangler/Miniflare) with persisted local Durable Object SQLite — no cloud, no cost.
