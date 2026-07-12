@@ -96,6 +96,28 @@ describe("computeDay corrections", () => {
     const d = computeDay([active(8, 0, 12, 0)], [rm], day, S, 0);
     expect(d.grossMs).toBe(4 * H - 30 * MIN);
   });
+
+  it("add_work re-includes a removed period as a distinct manual span (add overrides remove, no merge)", () => {
+    // Sensor covers 9–17; the user marks 15–16 private, then changes their mind
+    // and adds it back. The explicit add wins over the removal, and the re-added
+    // hour stays a distinct manual span — the two sensor periods never merge.
+    const rm: Correction = { kind: "remove_work", start: at(15), end: at(16) };
+    const add: Correction = { kind: "add_work", start: at(15), end: at(16) };
+    const d = computeDay([active(9, 0, 17, 0)], [rm, add], day, S, 0);
+    expect(d.grossMs).toBe(8 * H); // full 9–17 counts again
+    expect(provMs(d.spans, "manual_added")).toBe(1 * H); // the re-added hour is manual (purple)
+    expect(provMs(d.spans, "sensor")).toBe(7 * H); // surrounding measured time, unchanged
+    expect(d.spans.filter((s) => s.provenance === "sensor")).toHaveLength(2); // still two separate spans
+  });
+
+  it("add_work overrides only the removed region it overlaps", () => {
+    // remove 14–16, add back 15–16 → 14–15 stays excluded, 15–16 returns (manual).
+    const rm: Correction = { kind: "remove_work", start: at(14), end: at(16) };
+    const add: Correction = { kind: "add_work", start: at(15), end: at(16) };
+    const d = computeDay([active(9, 0, 17, 0)], [rm, add], day, S, 0);
+    expect(d.grossMs).toBe(7 * H); // 8h − 1h (14–15 still removed)
+    expect(provMs(d.spans, "manual_added")).toBe(1 * H); // 15–16 re-added as manual
+  });
 });
 
 describe("lunch and norms", () => {

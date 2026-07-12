@@ -83,17 +83,6 @@ export function pairSpans(events: RawEvent[], checkTime: number): Interval[] {
   return mergeIntervals(all);
 }
 
-/** Subtract `cut` from each span, preserving provenance on survivors. */
-function subtractSpans(spans: Span[], cut: Interval[]): Span[] {
-  const out: Span[] = [];
-  for (const s of spans) {
-    for (const piece of subtract([{ start: s.start, end: s.end }], cut)) {
-      out.push({ ...piece, provenance: s.provenance });
-    }
-  }
-  return out;
-}
-
 function inHours(gap: Interval, tz: string, startMin: number, endMin: number): boolean {
   // Fully within the working-hours window (a gap that touches outside is not
   // an in-hours break).
@@ -133,17 +122,21 @@ export function computeDay(
   const adds = clampAll(corrections.filter((c) => c.kind === "add_work"), win);
   const removes = clampAll(corrections.filter((c) => c.kind === "remove_work"), win);
 
-  // Compose: sensor + auto-bridged, then manual additions for the net-new time,
-  // then manual removals override everything.
-  const covered = mergeIntervals([...sensor, ...bridged]);
-  const manualAdded = subtract(adds, covered);
+  // Compose the day as distinct provenance layers that never merge:
+  //  - a remove_work carves its span out of the sensor/auto-bridged layers;
+  //  - an add_work covers whatever the *surviving* sensor/bridged does not, and
+  //    is shown as a manual addition. Because a removed span no longer survives,
+  //    an add_work over it re-includes that time as manual — so an explicit
+  //    add_work overrides a remove_work, and the re-added period stays a distinct
+  //    manual span (never merged back into the sensor it once was).
+  const survivingCovered = subtract(mergeIntervals([...sensor, ...bridged]), removes);
+  const manualAdded = subtract(adds, survivingCovered);
 
-  let spans: Span[] = [
-    ...tag(sensor, "sensor"),
-    ...tag(bridged, "auto_bridged"),
+  const spans: Span[] = [
+    ...tag(subtract(sensor, removes), "sensor"),
+    ...tag(subtract(bridged, removes), "auto_bridged"),
     ...tag(manualAdded, "manual_added"),
-  ];
-  spans = subtractSpans(spans, removes).sort((a, b) => a.start - b.start);
+  ].sort((a, b) => a.start - b.start);
 
   // A reviewable gap the user included is no longer reviewable.
   const reviewableGaps = subtract(reviewable, adds);

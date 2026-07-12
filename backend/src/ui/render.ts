@@ -81,8 +81,9 @@ main{max-width:900px;margin:0 auto;padding:1rem}
 .seg.auto_bridged{background:repeating-linear-gradient(45deg,var(--bridged) 0 5px,transparent 5px 10px),var(--idle)}
 .seg.manual_added{background:var(--manual)}
 .seg.review{background:var(--review);opacity:.5}
-.hours{display:flex;justify-content:space-between;margin-top:2px;font-size:.6rem;color:var(--muted)}
-.hours span{transform:translateX(-50%)}.hours span:first-child{transform:none}.hours span:last-child{transform:none}
+.hours{position:relative;height:.85rem;margin-top:2px;font-size:.6rem;color:var(--muted)}
+.hours span{position:absolute;transform:translateX(-50%)}
+.hours span:first-child{transform:none}.hours span:last-child{transform:translateX(-100%)}
 .detail{display:none;margin-top:.6rem;padding-top:.6rem;border-top:1px dashed var(--line2)}
 .lane.open .detail{display:block}
 .legend{display:flex;flex-wrap:wrap;gap:.15rem .8rem;font-size:.75rem;margin:.1rem 0 .6rem}
@@ -166,7 +167,7 @@ function dayLane(d,i,now){
  let bars='';
  for(const g of d.reviewableGaps)bars+=seg(g.start,g.end,'review');
  for(const sp of d.spans)bars+=seg(sp.start,sp.end,sp.provenance);
- let hrs='';for(let h=0;h<=24;h++)hrs+='<span>'+h+'</span>';
+ let hrs='';for(let h=0;h<=24;h++)hrs+='<span style="left:'+(h/24*100)+'%">'+h+'</span>';
  const balCls=d.balanceMs>=0?'pos':'neg';
  const isToday=now>=d.dayStart&&now<d.dayStart+DAY;
  const lane=el('<div class="lane'+(isToday?' today':'')+(d.dayStart===openDay?' open':'')+'">'+

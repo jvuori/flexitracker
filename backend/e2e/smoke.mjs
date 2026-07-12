@@ -81,6 +81,33 @@ async function run() {
     await j(`/api/corrections/${corr.id}`, { method: "DELETE" }).catch(() => {});
   }
 
+  // Re-include after removal: a remove_work must not permanently defeat a later
+  // add_work on the same span (regression — "15–16 is a gap I can't fill back").
+  {
+    const base = (await j("/api/week?offset=0")).days[0].workedMs; // Monday 8–10 + 13–16 = 5h
+    const rm = await j("/api/corrections", {
+      method: "POST",
+      body: JSON.stringify({ kind: "remove_work", start: at(14), end: at(15) }),
+    });
+    const afterRemove = (await j("/api/week?offset=0")).days[0].workedMs;
+    const add = await j("/api/corrections", {
+      method: "POST",
+      body: JSON.stringify({ kind: "add_work", start: at(14), end: at(15) }),
+    });
+    try {
+      const afterAdd = (await j("/api/week?offset=0")).days[0].workedMs;
+      check("remove_work carves out an hour", afterRemove === base - H, `got ${afterRemove / H}h vs base ${base / H}h`);
+      check(
+        "add_work re-includes a removed hour (add overrides remove)",
+        afterAdd === base,
+        `got ${afterAdd / H}h, expected ${base / H}h`,
+      );
+    } finally {
+      await j(`/api/corrections/${rm.id}`, { method: "DELETE" }).catch(() => {});
+      await j(`/api/corrections/${add.id}`, { method: "DELETE" }).catch(() => {});
+    }
+  }
+
   // Seal path (dev only): a fully-past day → maintenance materializes rollup+sessions.
   if (!process.env.CF_ACCESS_CLIENT_ID) {
     const past = monday - 14 * 86400_000 + 9 * H;

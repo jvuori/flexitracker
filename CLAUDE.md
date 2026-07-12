@@ -110,6 +110,23 @@ This project MUST never incur any charge — not now, not after any trial or 12-
 - **Access service-token (CI) requests fail identity** → service-token JWTs carry
   `common_name`, not `email`; `identity.ts` falls back to `common_name`/`sub` —
   keep that fallback if you touch identity resolution.
+- **Day timeline appears shifted ~1 hour: a bar at 15:00 sits under the "16"
+  label, so a gap reads an hour late** → the `.hours` ruler labels used
+  `display:flex; justify-content:space-between` (+`translateX(-50%)`), which does
+  NOT place label centers at `hour/24` once the labels have width — they drift
+  while the tick gradient and segment `left%` are exact. Fix: position each hour
+  label absolutely at `left:(h/24*100)%`. If you touch the ruler, keep labels,
+  ticks, and segment `pct()` on the identical `hour/24` scale (verify by measuring
+  `getBoundingClientRect` of a seg vs its hour label, not by eye — the drift is
+  subtle). This misalignment made a user edit the wrong hour ("can't fill the gap").
+- **`add_work` silently does nothing on a period you previously `remove_work`'d**
+  (looks like "a gap I can't fill") → in `computeDay`, removals were applied last
+  and unconditionally beat a later add, and a removed period renders identically
+  to a plain gap. Fix: compose provenance as layers that never merge — carve the
+  sensor/auto-bridged layers by `removes`, then let `add_work` cover whatever the
+  *surviving* sensor/bridged does not (`manualAdded = subtract(adds, subtract(sensor∪bridged, removes))`).
+  A re-added removed span thus counts again and shows as a distinct **manual**
+  (never merged back into sensor). Keep add-overrides-remove if you touch it.
 
 ## Environment & tooling gotchas (this machine)
 
