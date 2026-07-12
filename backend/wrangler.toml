@@ -16,6 +16,7 @@ compatibility_flags = ["nodejs_compat"]
 DEV_MODE = "1"
 DEV_IDENTITY = "dev@local"
 ADMIN_EMAILS = "dev@local,jaakko.vuori@gmail.com"
+QA_TEST_MODE = "1"
 
 [[durable_objects.bindings]]
 name = "TENANT"

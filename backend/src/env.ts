@@ -15,4 +15,6 @@ export interface Env {
   ACCESS_AUD?: string;
   /** Comma-separated admin email allowlist. */
   ADMIN_EMAILS?: string;
+  /** "1" enables the QA-only test endpoints (/test/*: reset, load, validate). */
+  QA_TEST_MODE?: string;
 }

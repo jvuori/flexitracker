@@ -169,6 +169,47 @@ api.get("/admin/audit", async (c) => c.json(await listAudit(c.env.REGISTRY)));
 
 app.route("/api", api);
 
+// ---- QA-only test surface (wipe/load/validate fixtures) ----------------
+// Key-authed and gated by QA_TEST_MODE, which is set ONLY in the QA env — so
+// these endpoints do not exist in PROD and can never touch PROD data.
+const test = new Hono<{ Bindings: Env; Variables: { acct: string } }>();
+test.use("*", async (c, next) => {
+  if (c.env.QA_TEST_MODE !== "1") return c.json({ error: "not found" }, 404);
+  await ready(c.env);
+  const auth = c.req.header("authorization") ?? "";
+  const key = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  const resolved = key ? await resolveKey(c.env.REGISTRY, key) : null;
+  if (!resolved) return c.json({ error: "invalid access key" }, 401);
+  c.set("acct", resolved.account_id);
+  await next();
+});
+test.post("/reset", async (c) => {
+  await tenant(c.env, c.get("acct")).reset();
+  return c.json({ ok: true });
+});
+// Mint another machine key under the same account (multi-machine fixtures,
+// no manual UI step).
+test.post("/machine", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { label?: string };
+  const key = await issueKey(c.env.REGISTRY, c.get("acct"), body.label ?? "fixture");
+  return c.json(key);
+});
+test.post("/correction", async (c) => {
+  const b = (await c.req.json()) as {
+    kind: "add_work" | "remove_work";
+    start: number;
+    end: number;
+    note?: string;
+  };
+  const id = await tenant(c.env, c.get("acct")).addCorrection(b.kind, b.start, b.end, b.note ?? null);
+  return c.json({ ok: true, id });
+});
+test.get("/week", async (c) => {
+  const offset = Number(c.req.query("offset") ?? "0");
+  return c.json(await tenant(c.env, c.get("acct")).weekView(offset));
+});
+app.route("/test", test);
+
 // ---- HTML UI (server-rendered HTMX shell) ------------------------------
 app.get("/", async (c) => {
   await ready(c.env);

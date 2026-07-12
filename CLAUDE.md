@@ -49,6 +49,16 @@ This project MUST never incur any charge — not now, not after any trial or 12-
 - **Unit tests** where appropriate: Rust (`cargo test`) for the daemon and rules; TypeScript unit tests for Worker/DO rules (gap-bridging, span-pairing, saldo).
 - **Basic E2E integration tests** run post-QA-deploy and must validate ingest → seal → week view → correction round-trip. These gate PROD.
 
+## QA test data (fixtures) & the PROD data firewall
+
+- **QA is a disposable scenario lab.** Every deploy runs `backend/e2e/fixtures.mjs`, which **wipes** the seed account and re-materializes `backend/e2e/fixtures.data.mjs`: fixed scenarios (normal day, auto-bridged gaps, manual add/remove, reviewable meeting, out-of-hours, weekend, multi-machine) on **relative** weeks (this week, last week, …) so there are no fixed dates. Extra machines are minted by the loader (`/test/machine`) — no manual UI step. The loader validates every day's computed numbers against a hand-specified oracle; then the Access-authed smoke runs.
+- **QA data may be freely manipulated by pipelines/tests** and is reset each deploy, so manual exploration between deploys will be overwritten. Fixtures load into the account of the `QA_SEED_KEY` secret (mint it while logged in so it's *your* account and you can browse the fixtures).
+- **PROD data is never touched.** Layered protection — all must hold:
+  1. The `/test/*` endpoints (reset/machine/correction/week) exist only where `QA_TEST_MODE=1`, set **only** in `[env.qa.vars]` + local vars — **never** in `[env.prod.vars]`.
+  2. `fixtures.mjs` hard-refuses any `BASE` matching `/prod/i`.
+  3. No workflow runs fixtures against PROD (`deploy-prod.yml` deploys code only).
+  Never add `QA_TEST_MODE` to prod, weaken the loader's prod guard, or point a fixtures run at a prod URL.
+
 ## Coding principles
 
 - **Fail fast.** On unexpected conditions, crash loudly rather than masking or "coping" — surface the root cause immediately. Do not swallow errors or add defensive fallbacks that hide bugs.

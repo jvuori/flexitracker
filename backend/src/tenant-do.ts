@@ -328,6 +328,22 @@ export class TenantDO extends DurableObject<Env> {
     this.ctx.storage.setAlarm(Date.now() + DAY_MS);
   }
 
+  /** Test hook (QA only): wipe ALL of this tenant's data back to empty. */
+  reset(): void {
+    for (const t of [
+      "event",
+      "batch_seen",
+      "machine",
+      "correction",
+      "daily_rollup",
+      "session",
+      "dirty_day",
+      "meta",
+    ]) {
+      this.sql.exec(`DELETE FROM ${t}`);
+    }
+  }
+
   /** Dev/test hook: run maintenance now and report what was materialized. */
   runMaintenanceNow(): { rollups: number; sessions: number } {
     this.runMaintenance(Date.now());

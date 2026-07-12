@@ -44,7 +44,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: End-to-end smoke against live QA
+      # Wipe QA and re-materialize the scenario fixtures, then validate every
+      # day's computed numbers against the expected oracle. This resets any
+      # manual exploration done on QA between deploys.
+      - name: Load & validate scenario fixtures on QA
+        working-directory: backend
+        env:
+          BASE: ${{ vars.QA_BASE_URL }}
+          SEED_KEY: ${{ secrets.QA_SEED_KEY }}
+        run: node e2e/fixtures.mjs
+      - name: End-to-end smoke (Access-authed API) against live QA
         working-directory: backend
         env:
           BASE: ${{ vars.QA_BASE_URL }}
