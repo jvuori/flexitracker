@@ -88,3 +88,36 @@ This project MUST never incur any charge — not now, not after any trial or 12-
   the UI is fully Worker-rendered, so the assets binding was removed. If static
   assets are reintroduced, use a non-root path or `run_worker_first` so `/` still
   hits the Worker.
+- **A deployed QA/PROD Worker is missing a var you set** (e.g. `/test/*` returns
+  404, or Access JWT verification errors) → wrangler **named environments do NOT
+  inherit top-level `[vars]`**. Fix: set every var explicitly in `[env.qa.vars]`
+  / `[env.prod.vars]`. The `wrangler deploy` warning "vars.X exists at the top
+  level, but not on env.qa.vars" is the tell — don't ignore it.
+- **A JSON `fetch` to `/ingest`, `/config`, `/health`, or `/test/*` returns `{}` /
+  undefined fields (with `r.ok` true), then a later call 401s with a bogus
+  token** → the path is **not bypassed in Cloudflare Access**, so the request got
+  the HTML login page (HTTP 200) which parsed to `{}`. Fix: those non-browser
+  paths need Access "Bypass / Everyone" apps — run `provision-access.yml`.
+  Rule of thumb: an unexpected `{}` from a JSON fetch on Cloudflare = a login
+  redirect on a non-bypassed path.
+- **Local totals look wrong (e.g. a correction you didn't add persists)** →
+  `wrangler dev --local` persists to `.wrangler/state` and shares it across ports
+  and runs. Fix: `rm -rf .wrangler` (or use a fresh identity) between independent
+  local test runs.
+- **`npx wrangler` errors "requires Node 22" or behaves oddly** → run outside
+  `backend/` it fetches the *latest* wrangler; run `./node_modules/.bin/wrangler`
+  from `backend/` to use the pinned v4.86 (works on Node 20).
+- **Access service-token (CI) requests fail identity** → service-token JWTs carry
+  `common_name`, not `email`; `identity.ts` falls back to `common_name`/`sub` —
+  keep that fallback if you touch identity resolution.
+
+## Environment & tooling gotchas (this machine)
+
+- **Node:** the `!` embed and non-interactive shells default to an old Node (18)
+  despite nvm's default being 20, and `nvm use` doesn't persist across separate
+  `!` invocations. Prefix Node/wrangler commands with
+  `export PATH="$HOME/.nvm/versions/node/v20.x/bin:$PATH"` (or source nvm + `nvm use 20`).
+- **Secrets:** interactive prompts don't work in the `!` embed (no TTY), so
+  `gh secret set <NAME>` (and `wrangler login` paste) silently read empty and
+  store a blank value. Set repo secrets via the GitHub web UI, or run them in a
+  real interactive terminal.
