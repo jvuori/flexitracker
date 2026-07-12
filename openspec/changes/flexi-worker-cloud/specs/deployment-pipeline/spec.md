@@ -1,5 +1,16 @@
 ## ADDED Requirements
 
+### Requirement: Cloudflare operations run through version-controlled Actions
+All Cloudflare operations — deploys AND infrastructure changes (Access applications/policies, resource bindings) — SHALL be performed by version-controlled scripts run in GitHub Actions, not by ad-hoc dashboard clicks or local commands, except for one-time credential/secret bootstraps.
+
+#### Scenario: Deploys go through Actions
+- **WHEN** code is deployed to QA or PROD
+- **THEN** it is performed by a workflow running a version-controlled command, not a manual local deploy
+
+#### Scenario: Access provisioning is codified
+- **WHEN** the Access bypass applications are (re)created
+- **THEN** they are provisioned by a version-controlled script run from a workflow, idempotently
+
 ### Requirement: Isolated QA and PROD environments
 The system SHALL provide two fully isolated environments, QA and PROD, with separate Cloudflare resources and data, so QA activity never affects PROD.
 
