@@ -189,7 +189,9 @@ function renderMachines(m){
  const add=el('<div class="card"><div class="row"><input id="label" placeholder="Machine label (e.g. Laptop)"><button class="act" id="issue">+ Add machine</button></div><div id="cmd"></div></div>');
  view.append(add);
  document.getElementById('issue').onclick=async()=>{const label=document.getElementById('label').value||null;const k=await api('/machines',{method:'POST',body:JSON.stringify({label})});
-  document.getElementById('cmd').innerHTML='<p class="muted">Run on the machine:</p><code>flexi-worker --account-key='+k.access_key+'</code>';TABS.machines();};
+  const cmd=document.getElementById('cmd');
+  cmd.innerHTML='<p class="muted">Copy this key now — it is shown only once:</p><code id="keyval">'+k.access_key+'</code> <button class="act" id="copykey">Copy</button><p class="muted">Run: <code>flexi-worker --account-key=&lt;key&gt;</code></p>';
+  document.getElementById('copykey').onclick=async()=>{try{await navigator.clipboard.writeText(k.access_key);document.getElementById('copykey').textContent='Copied ✓';}catch{const r=document.createRange();r.selectNode(document.getElementById('keyval'));getSelection().removeAllRanges();getSelection().addRange(r);}};};
  const t=el('<table><tr><th>Label</th><th>Machine</th><th>Last seen</th><th>Key</th><th></th></tr></table>');
  const seen={};for(const mc of m.machines)seen[mc.machine_id]=mc;
  for(const k of m.keys){const mc=seen[k.machine_id];
