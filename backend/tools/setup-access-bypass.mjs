@@ -10,7 +10,9 @@
 const TOKEN = req("CF_API_TOKEN");
 const ACCOUNT = req("CF_ACCOUNT_ID");
 const HOSTNAME = process.env.HOSTNAME ?? "flexi-worker-cloud-qa.jaakko-vuori.workers.dev";
-const PATHS = ["ingest", "config", "health"];
+// /test is QA-only (endpoints 404 unless QA_TEST_MODE=1) and key-authed; bypass
+// keeps the CI fixtures loader from being challenged by the browser login.
+const PATHS = ["ingest", "config", "health", "test"];
 const API = "https://api.cloudflare.com/client/v4";
 
 function req(name) {

@@ -62,6 +62,9 @@ async function acquireKeys() {
   const keys = [first];
   for (let i = 1; i < MACHINES.length; i++) {
     const r = await jf("/test/machine", { method: "POST", body: JSON.stringify({ label: MACHINES[i] }) }, first);
+    if (!r.access_key) {
+      throw new Error(`/test/machine returned no access_key — is /test bypassed in Access? got ${JSON.stringify(r)}`);
+    }
     keys.push(r.access_key);
   }
   return keys;
