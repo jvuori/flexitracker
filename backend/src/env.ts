@@ -17,4 +17,7 @@ export interface Env {
   ADMIN_EMAILS?: string;
   /** "1" enables the QA-only test endpoints (/test/*: reset, load, validate). */
   QA_TEST_MODE?: string;
+  /** In QA, a login with this email is mapped to the fixtures account so the
+   *  seeded scenarios are browsable. Never set in PROD. */
+  QA_FIXTURE_EMAIL?: string;
 }

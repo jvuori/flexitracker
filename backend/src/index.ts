@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import type { Env } from "./env";
 import { parseEventBatch } from "./schema";
 import {
+  ensureAccountRow,
+  ensureKey,
   ensureRegistrySchema,
   getOrCreateAccount,
   issueKey,
@@ -11,6 +13,7 @@ import {
   recordAudit,
   resolveKey,
   revokeKey,
+  wipeRegistry,
 } from "./registry";
 import { isAdmin, requireIdentity, UnauthorizedError, type Identity } from "./identity";
 import type { Settings } from "./worktime/settings";
@@ -28,6 +31,17 @@ function ready(env: Env): Promise<void> {
 
 function tenant(env: Env, accountId: string) {
   return env.TENANT.get(env.TENANT.idFromName(accountId));
+}
+
+/** Fixed account the QA fixtures load into (and that QA_FIXTURE_EMAIL maps to). */
+const FIXTURE_ACCOUNT_ID = "qa-fixtures";
+
+/** Resolve a human identity to its account id, with the QA fixtures override. */
+async function accountFor(env: Env, identity: Identity): Promise<string> {
+  if (env.QA_TEST_MODE === "1" && env.QA_FIXTURE_EMAIL && identity.email === env.QA_FIXTURE_EMAIL) {
+    return FIXTURE_ACCOUNT_ID;
+  }
+  return (await getOrCreateAccount(env.REGISTRY, identity.sub, identity.email)).account_id;
 }
 
 const app = new Hono<{ Bindings: Env; Variables: { identity: Identity; accountId: string } }>();
@@ -79,9 +93,8 @@ api.use("*", async (c, next) => {
     if (e instanceof UnauthorizedError) return c.json({ error: e.message }, 401);
     throw e;
   }
-  const account = await getOrCreateAccount(c.env.REGISTRY, identity.sub, identity.email);
   c.set("identity", identity);
-  c.set("accountId", account.account_id);
+  c.set("accountId", await accountFor(c.env, identity));
   await next();
 });
 
@@ -169,6 +182,23 @@ api.get("/admin/audit", async (c) => c.json(await listAudit(c.env.REGISTRY)));
 
 app.route("/api", api);
 
+// ---- QA-only bootstrap: full clean slate + self-minted fixture keys ----
+// No pre-existing key needed (unlike /test/*), so the pipeline is fully
+// self-provisioning. Gated by QA_TEST_MODE ⇒ 404 in PROD.
+app.post("/test/bootstrap", async (c) => {
+  if (c.env.QA_TEST_MODE !== "1") return c.json({ error: "not found" }, 404);
+  await ready(c.env);
+  const email = c.env.QA_FIXTURE_EMAIL ?? "fixtures@local";
+  await wipeRegistry(c.env.REGISTRY); // delete ALL accounts/keys → clean slate
+  await ensureAccountRow(c.env.REGISTRY, FIXTURE_ACCOUNT_ID, email);
+  await tenant(c.env, FIXTURE_ACCOUNT_ID).reset(); // wipe the fixtures tenant's data
+  const keys: string[] = [];
+  for (const label of ["Laptop", "Desktop"]) {
+    keys.push((await ensureKey(c.env.REGISTRY, FIXTURE_ACCOUNT_ID, label)).access_key);
+  }
+  return c.json({ accountId: FIXTURE_ACCOUNT_ID, keys });
+});
+
 // ---- QA-only test surface (wipe/load/validate fixtures) ----------------
 // Key-authed and gated by QA_TEST_MODE, which is set ONLY in the QA env — so
 // these endpoints do not exist in PROD and can never touch PROD data.
@@ -192,12 +222,7 @@ test.post("/reset", async (c) => {
 // keys in the registry.
 test.post("/machine", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { label?: string };
-  const label = body.label ?? "fixture";
-  const acct = c.get("acct");
-  const existing = (await listKeys(c.env.REGISTRY, acct)).find(
-    (k) => k.label === label && k.revoked_at === null,
-  );
-  return c.json(existing ?? (await issueKey(c.env.REGISTRY, acct, label)));
+  return c.json(await ensureKey(c.env.REGISTRY, c.get("acct"), body.label ?? "fixture"));
 });
 test.post("/correction", async (c) => {
   const b = (await c.req.json()) as {
@@ -220,8 +245,8 @@ app.get("/", async (c) => {
   await ready(c.env);
   try {
     const identity = await requireIdentity(c.req.raw, c.env);
-    const account = await getOrCreateAccount(c.env.REGISTRY, identity.sub, identity.email);
-    return c.html(renderApp(identity, isAdmin(identity, c.env), account.account_id));
+    const accountId = await accountFor(c.env, identity);
+    return c.html(renderApp(identity, isAdmin(identity, c.env), accountId));
   } catch (e) {
     if (e instanceof UnauthorizedError) return c.text("Sign in required.", 401);
     throw e;

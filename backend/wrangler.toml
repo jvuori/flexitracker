@@ -17,6 +17,7 @@ DEV_MODE = "1"
 DEV_IDENTITY = "dev@local"
 ADMIN_EMAILS = "dev@local,jaakko.vuori@gmail.com"
 QA_TEST_MODE = "1"
+QA_FIXTURE_EMAIL = "dev@local"
 
 [[durable_objects.bindings]]
 name = "TENANT"
@@ -42,6 +43,7 @@ ACCESS_TEAM_DOMAIN = "flexi-worker-team.cloudflareaccess.com"
 ACCESS_AUD = "75ada7e725c5e2c16fe2cc0a46f3632ff58b57587fbd2e477d137d095b4408b5"
 # QA-only test surface. Deliberately absent from [env.prod.vars] (PROD firewall).
 QA_TEST_MODE = "1"
+QA_FIXTURE_EMAIL = "jaakko.vuori@gmail.com"
 
 [[env.qa.durable_objects.bindings]]
 name = "TENANT"

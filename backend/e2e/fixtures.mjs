@@ -46,40 +46,28 @@ function monday(offset) {
 }
 const tsOf = (offset, wd, [h, m]) => monday(offset) + wd * 86400_000 + (h * 60 + m) * MIN;
 
-// Obtain the first machine key: from SEED_KEY (QA) or by minting via the dev
-// stub (local). Then mint the remaining machines through /test/machine so no
-// manual UI step is needed in any environment.
+// Fully self-provisioning: /test/bootstrap wipes ALL data and returns freshly
+// minted machine keys for the fixtures account. No pre-existing key, no manual
+// step, identical on local and QA.
 async function acquireKeys() {
-  // Tolerate a trailing newline or a pasted "…--account-key=XXX" command.
-  let first = (process.env.SEED_KEY ?? "").trim();
-  const m = /account-key=(\S+)/.exec(first);
-  if (m) first = m[1];
-  if (!first) {
-    const r = await jf("/api/machines", {
-      method: "POST",
-      headers: { "x-dev-identity": process.env.IDENTITY ?? "fixtures@local" },
-      body: JSON.stringify({ label: MACHINES[0] }),
-    });
-    first = r.access_key;
-  }
-  const keys = [first];
-  for (let i = 1; i < MACHINES.length; i++) {
-    const r = await jf("/test/machine", { method: "POST", body: JSON.stringify({ label: MACHINES[i] }) }, first);
-    if (!r.access_key) {
-      throw new Error(`/test/machine returned no access_key — is /test bypassed in Access? got ${JSON.stringify(r)}`);
-    }
-    keys.push(r.access_key);
+  const r = await jf("/test/bootstrap", { method: "POST" });
+  const keys = r.keys ?? [];
+  if (keys.length < MACHINES.length) {
+    throw new Error(
+      `/test/bootstrap returned ${keys.length} keys, need ${MACHINES.length} ` +
+        `(is QA_TEST_MODE=1 and /test bypassed in Access?): ${JSON.stringify(r)}`,
+    );
   }
   return keys;
 }
 
 async function main() {
   check("health", (await (await fetch(BASE + "/health")).json()).ok);
+  // bootstrap wipes ALL data and returns fresh keys for the fixtures account.
   const keys = await acquireKeys();
-  check(`acquired ${MACHINES.length} machine keys`, keys.length === MACHINES.length);
+  check(`bootstrapped ${MACHINES.length} machine keys`, keys.length === MACHINES.length);
 
-  // Wipe, then load every week's events + corrections.
-  await jf("/test/reset", { method: "POST" }, keys[0]);
+  // Load every week's events + corrections onto the clean slate.
   let seq = 1;
   for (const week of WEEKS) {
     for (const day of week.days) {

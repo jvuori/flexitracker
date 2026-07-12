@@ -93,31 +93,60 @@ function token(bytes = 32): string {
   return s;
 }
 
-/** Resolve a Google subject to a stable account_id, minting on first login. */
+/**
+ * Resolve an identity to a stable account_id, minting on first login. The
+ * account_id is DERIVED from the subject (deterministic), so re-creating an
+ * account after a registry wipe maps back to the same Durable Object rather than
+ * orphaning it.
+ */
 export async function getOrCreateAccount(
   db: D1Database,
   sub: string,
   email: string,
 ): Promise<Account> {
   const existing = await db
-    .prepare("SELECT * FROM account WHERE google_sub = ?")
+    .prepare("SELECT * FROM account WHERE account_id = ?")
     .bind(sub)
     .first<Account>();
   if (existing) return existing;
 
-  const account: Account = {
-    account_id: crypto.randomUUID(),
-    google_sub: sub,
-    email,
-    created_at: Date.now(),
-  };
+  const account: Account = { account_id: sub, google_sub: sub, email, created_at: Date.now() };
+  await ensureAccountRow(db, sub, email);
+  return account;
+}
+
+/** Idempotently ensure an account row with a fixed id exists. */
+export async function ensureAccountRow(
+  db: D1Database,
+  accountId: string,
+  email: string,
+): Promise<void> {
   await db
     .prepare(
-      "INSERT INTO account (account_id, google_sub, email, created_at) VALUES (?, ?, ?, ?)",
+      "INSERT OR IGNORE INTO account (account_id, google_sub, email, created_at) VALUES (?, ?, ?, ?)",
     )
-    .bind(account.account_id, account.google_sub, account.email, account.created_at)
+    .bind(accountId, accountId, email, Date.now())
     .run();
-  return account;
+}
+
+/** Return an existing non-revoked key for (account,label) or issue a new one. */
+export async function ensureKey(
+  db: D1Database,
+  accountId: string,
+  label: string,
+): Promise<MachineKey> {
+  const existing = (await listKeys(db, accountId)).find(
+    (k) => k.label === label && k.revoked_at === null,
+  );
+  return existing ?? issueKey(db, accountId, label);
+}
+
+/** Wipe the entire global registry (QA reset). Durable Object data is cleared
+ *  separately per account via TenantDO.reset(). */
+export async function wipeRegistry(db: D1Database): Promise<void> {
+  await db.prepare("DELETE FROM machine_key").run();
+  await db.prepare("DELETE FROM admin_audit").run();
+  await db.prepare("DELETE FROM account").run();
 }
 
 /** Resolve an access key to its account+machine, or null if unknown/revoked. */
