@@ -50,7 +50,10 @@ const tsOf = (offset, wd, [h, m]) => monday(offset) + wd * 86400_000 + (h * 60 +
 // stub (local). Then mint the remaining machines through /test/machine so no
 // manual UI step is needed in any environment.
 async function acquireKeys() {
-  let first = process.env.SEED_KEY;
+  // Tolerate a trailing newline or a pasted "…--account-key=XXX" command.
+  let first = (process.env.SEED_KEY ?? "").trim();
+  const m = /account-key=(\S+)/.exec(first);
+  if (m) first = m[1];
   if (!first) {
     const r = await jf("/api/machines", {
       method: "POST",
