@@ -34,9 +34,11 @@ export function renderApp(identity: Identity, admin: boolean, accountId: string)
 }
 
 const CSS = `
-:root{color-scheme:light dark;--bg:#fff;--fg:#111;--muted:#666;--line:#ddd;
---sensor:#2a7ade;--bridged:#5bb98b;--manual:#a970ff;--review:#e0a458;--remove:#d05;}
-@media (prefers-color-scheme:dark){:root{--bg:#14161a;--fg:#e8e8e8;--muted:#9aa;--line:#333;}}
+:root{color-scheme:light dark;--bg:#fff;--fg:#111;--muted:#666;--line:#ddd;--line2:#cfd3da;
+--panel:#f6f8fb;--panel2:#eef1f6;--tick:#aab2be;--tick-strong:#7c8593;--tick-faint:#cdd3dc;--idle:#c9ced6;
+--sensor:#2a7ade;--bridged:#5bb98b;--manual:#a970ff;--review:#e0a458;--remove:#d05;--pos:#2e9e6b;--neg:#d05;}
+@media (prefers-color-scheme:dark){:root{--bg:#14161a;--fg:#e8e8e8;--muted:#9aa;--line:#333;--line2:#3a414b;
+--panel:#1b1e24;--panel2:#22262e;--tick:#4a525d;--tick-strong:#6b7480;--tick-faint:#333a43;--idle:#3a414b;--pos:#4fc98d;--neg:#ff5c86;}}
 *{box-sizing:border-box}
 body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--fg)}
 header{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem;border-bottom:1px solid var(--line)}
@@ -53,12 +55,43 @@ main{max-width:900px;margin:0 auto;padding:1rem}
 .balance.pos{color:var(--bridged)}.balance.neg{color:var(--remove)}
 .muted{color:var(--muted);font-size:.85rem}
 .big{font-size:1.4rem;font-weight:600}
-.timeline{position:relative;height:34px;background:var(--line);border-radius:6px;overflow:hidden;margin:.5rem 0}
-.seg{position:absolute;top:0;height:100%}
-.seg.sensor{background:var(--sensor)}.seg.auto_bridged{background:var(--bridged)}
-.seg.manual_added{background:var(--manual)}.seg.review{background:var(--review);opacity:.6}
-.legend span{display:inline-flex;align-items:center;gap:.3rem;margin-right:.75rem;font-size:.8rem}
+.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;margin:.5rem 0 1rem}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:.6rem .7rem}
+.stat .k{color:var(--muted);font-size:.7rem;text-transform:uppercase;letter-spacing:.05em}
+.stat .v{font-size:1.25rem;font-weight:650;margin-top:.1rem;font-variant-numeric:tabular-nums}
+.stat .v.pos{color:var(--pos)}.stat .v.neg{color:var(--neg)}
+.lane{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:.55rem .65rem;margin:.4rem 0}
+.lane.today{border-color:var(--sensor);box-shadow:inset 0 0 0 1px var(--sensor)}
+.lane-head{display:grid;grid-template-columns:96px 1fr 118px;gap:.6rem;align-items:center}
+.dl{font-size:.8rem;line-height:1.2;cursor:pointer;user-select:none}
+.dl b{display:block;font-size:.9rem}.dl .date{color:var(--muted)}
+.chev{display:inline-block;font-size:.65rem;color:var(--muted);transition:transform .15s;margin-right:.2rem}
+.lane.open .chev{transform:rotate(90deg)}
+.nums{text-align:right;font-size:.8rem;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.nums .worked{display:block;font-size:1.05rem;font-weight:650;color:var(--fg)}
+.nums .bal{font-weight:600}.nums .bal.pos{color:var(--pos)}.nums .bal.neg{color:var(--neg)}
+.tl{cursor:pointer;user-select:none}
+.track{position:relative;height:30px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);overflow:hidden;
+ background-image:repeating-linear-gradient(90deg,var(--tick-strong) 0 1px,transparent 1px calc(100%/24)),
+ repeating-linear-gradient(90deg,var(--tick) 0 1px,transparent 1px calc(100%/48)),
+ repeating-linear-gradient(90deg,var(--tick-faint) 0 1px,transparent 1px calc(100%/96));
+ background-size:100% 30px,100% 16px,100% 8px;background-position:left bottom;background-repeat:repeat-x}
+.seg{position:absolute;top:5px;height:14px;border-radius:3px;min-width:2px}
+.seg.sensor{background:var(--sensor)}
+.seg.auto_bridged{background:repeating-linear-gradient(45deg,var(--bridged) 0 5px,transparent 5px 10px),var(--idle)}
+.seg.manual_added{background:var(--manual)}
+.seg.review{background:var(--review);opacity:.5}
+.hours{display:flex;justify-content:space-between;margin-top:2px;font-size:.6rem;color:var(--muted)}
+.hours span{transform:translateX(-50%)}.hours span:first-child{transform:none}.hours span:last-child{transform:none}
+.detail{display:none;margin-top:.6rem;padding-top:.6rem;border-top:1px dashed var(--line2)}
+.lane.open .detail{display:block}
+.legend{display:flex;flex-wrap:wrap;gap:.15rem .8rem;font-size:.75rem;margin:.1rem 0 .6rem}
+.legend span{display:inline-flex;align-items:center;gap:.3rem;color:var(--muted)}
 .swatch{width:.8rem;height:.8rem;border-radius:2px;display:inline-block}
+.swatch.auto_bridged{background:repeating-linear-gradient(45deg,var(--bridged) 0 3px,transparent 3px 6px),var(--idle)}
+@media (max-width:640px){.summary{grid-template-columns:repeat(2,1fr)}
+ .lane-head{grid-template-columns:1fr auto;grid-template-areas:"dl nums" "tl tl";row-gap:.45rem}
+ .dl{grid-area:dl}.nums{grid-area:nums}.tl{grid-area:tl}}
 button.act{border:1px solid var(--line);background:none;color:var(--fg);padding:.25rem .5rem;border-radius:5px;cursor:pointer;font-size:.8rem}
 input,select{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:5px;padding:.35rem}
 label{display:block;margin:.4rem 0 .15rem;font-size:.85rem}
@@ -97,73 +130,84 @@ const TABS={
  async admin(){renderAdmin(await api('/admin/accounts'));},
 };
 
+let openDay=null;
+function dayFmt(ts){return new Intl.DateTimeFormat('en-GB',{timeZone:TZ,day:'2-digit',month:'short'}).format(ts);}
+function stat(k,v,cls){return '<div class="stat"><div class="k">'+k+'</div><div class="v'+(cls?' '+cls:'')+'">'+v+'</div></div>';}
+
 function renderWeek(st,wk){
- const start=new Intl.DateTimeFormat('en-GB',{timeZone:TZ,day:'2-digit',month:'short'}).format(wk.weekStart);
  view.innerHTML='';
  const status=st.state==='active'?('🟢 active since '+clock(st.since)+(st.hostname?' on '+st.hostname:'')):
    st.state==='idle'?('⚪ idle since '+clock(st.since)):'— no data';
  view.append(el('<div class="card"><div class="row"><div>'+status+'</div>'+
-   '<div class="muted">week of '+start+'</div></div></div>'));
+   '<div class="muted">week of '+dayFmt(wk.weekStart)+'</div></div></div>'));
+ const endTs=wk.days[wk.days.length-1].dayStart;
  const nav=el('<div class="row"><button class="act" id="prev">← prev</button>'+
-   '<div class="big">'+hm(wk.weeklyWorkedMs)+' <span class="muted">/ '+hm(wk.weeklyNormMs)+'</span></div>'+
+   '<div class="big">'+dayFmt(wk.weekStart)+' – '+dayFmt(endTs)+'</div>'+
    '<button class="act" id="next">next →</button></div>');
  view.append(nav);
- const bal=el('<div class="row"><span class="muted">weekly balance</span><span class="big balance '+
-   (wk.weeklyBalanceMs>=0?'pos':'neg')+'">'+hm(wk.weeklyBalanceMs)+'</span></div>');
- view.append(bal);
- wk.days.forEach((d,i)=>{
-  const c=el('<div class="card day"><div class="row"><b>'+DAYNAMES[i]+'</b>'+
-    '<span>'+hm(d.workedMs)+' <span class="muted">('+hm(round30(d.workedMs))+')</span></span>'+
-    '<span class="balance '+(d.balanceMs>=0?'pos':'neg')+'">'+(d.isWorkingDay?hm(d.balanceMs):'—')+'</span>'+
-    '</div></div>');
-  c.addEventListener('click',()=>renderDay(d));
-  view.append(c);
- });
- document.getElementById('prev').onclick=()=>{weekOffset--;TABS.week();};
- document.getElementById('next').onclick=()=>{weekOffset++;TABS.week();};
+ const lunchMs=wk.days.reduce((n,d)=>n+d.lunchMs,0);
+ view.append(el('<div class="summary">'+
+   stat('Worked',hm(wk.weeklyWorkedMs))+
+   stat('Weekly norm',hm(wk.weeklyNormMs))+
+   stat('Lunch',hm(lunchMs))+
+   stat('Balance',hm(wk.weeklyBalanceMs),wk.weeklyBalanceMs>=0?'pos':'neg')+'</div>'));
+ const now=Date.now();
+ wk.days.forEach((d,i)=>view.append(dayLane(d,i,now)));
+ document.getElementById('prev').onclick=()=>{weekOffset--;openDay=null;TABS.week();};
+ document.getElementById('next').onclick=()=>{weekOffset++;openDay=null;TABS.week();};
 }
 
-function renderDay(d){
- const win={start:d.dayStart,end:d.dayStart+86400000};
- const lo=6*3600000,hi=22*3600000;const span=hi-lo;
- const pct=ts=>Math.max(0,Math.min(100,((ts-d.dayStart-lo)/span)*100));
+// One day = one inline lane: label · full 0–24h timeline+ruler · numbers,
+// with an in-place expandable correction panel (no separate day route).
+function dayLane(d,i,now){
+ const DAY=86400000;
+ const pct=ts=>Math.max(0,Math.min(100,((ts-d.dayStart)/DAY)*100));
  const seg=(s,e,cls)=>'<div class="seg '+cls+'" style="left:'+pct(s)+'%;width:'+(pct(e)-pct(s))+'%"></div>';
  let bars='';
  for(const g of d.reviewableGaps)bars+=seg(g.start,g.end,'review');
  for(const sp of d.spans)bars+=seg(sp.start,sp.end,sp.provenance);
- view.innerHTML='';
- view.append(el('<button class="act" id="back">← week</button>'));
- view.append(el('<h2>'+new Intl.DateTimeFormat('en-GB',{timeZone:TZ,weekday:'long',day:'2-digit',month:'short'}).format(d.dayStart)+'</h2>'));
- view.append(el('<div class="row"><span class="big">'+hm(d.workedMs)+'</span><span class="muted">gross '+hm(d.grossMs)+' · lunch −'+hm(d.lunchMs)+'</span></div>'));
- view.append(el('<div class="timeline">'+bars+'</div>'));
- view.append(el('<div class="legend"><span><i class="swatch" style="background:var(--sensor)"></i>measured</span>'+
-   '<span><i class="swatch" style="background:var(--bridged)"></i>auto-bridged</span>'+
-   '<span><i class="swatch" style="background:var(--manual)"></i>manual</span>'+
-   '<span><i class="swatch" style="background:var(--review)"></i>excluded (review)</span></div>'));
+ let hrs='';for(let h=0;h<=24;h++)hrs+='<span>'+h+'</span>';
+ const balCls=d.balanceMs>=0?'pos':'neg';
+ const isToday=now>=d.dayStart&&now<d.dayStart+DAY;
+ const lane=el('<div class="lane'+(isToday?' today':'')+(d.dayStart===openDay?' open':'')+'">'+
+   '<div class="lane-head">'+
+   '<div class="dl"><b><span class="chev">▶</span>'+DAYNAMES[i]+'</b><span class="date">'+dayFmt(d.dayStart)+'</span></div>'+
+   '<div class="tl"><div class="track">'+bars+'</div><div class="hours">'+hrs+'</div></div>'+
+   '<div class="nums"><span class="worked">'+hm(round30(d.workedMs))+'</span>'+
+     '<span class="bal '+balCls+'">'+(d.isWorkingDay?hm(d.balanceMs):'—')+'</span></div>'+
+   '</div><div class="detail"></div></div>');
+ buildDetail(lane.querySelector('.detail'),d);
+ const toggle=()=>{openDay=lane.classList.toggle('open')?d.dayStart:null;};
+ lane.querySelector('.tl').addEventListener('click',toggle);
+ lane.querySelector('.dl').addEventListener('click',toggle);
+ return lane;
+}
 
- // Reviewable gaps → include; spans → mark private.
- const actions=el('<div class="card"></div>');
- if(d.reviewableGaps.length===0 && d.spans.length===0)actions.append(el('<div class="muted">No activity.</div>'));
+// Editing controls for a day, rendered inside its lane's .detail panel.
+function buildDetail(c,d){
+ c.append(el('<div class="row"><span class="muted">gross '+hm(d.grossMs)+' · lunch −'+hm(d.lunchMs)+' · worked '+hm(d.workedMs)+'</span></div>'));
+ c.append(el('<div class="legend"><span><i class="swatch" style="background:var(--sensor)"></i>measured</span>'+
+   '<span><i class="swatch auto_bridged"></i>auto-bridged</span>'+
+   '<span><i class="swatch" style="background:var(--manual)"></i>manual</span>'+
+   '<span><i class="swatch" style="background:var(--review);opacity:.6"></i>excluded (review)</span></div>'));
+ if(d.reviewableGaps.length===0 && d.spans.length===0)c.append(el('<div class="muted">No activity.</div>'));
  for(const g of d.reviewableGaps){
   const r=el('<div class="row"><span>Excluded '+clock(g.start)+'–'+clock(g.end)+' ('+hm(g.end-g.start)+')</span>'+
     '<button class="act">Include as work</button></div>');
-  r.querySelector('button').onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:g.start,end:g.end,note:'reviewed'})});TABS.week();};
-  actions.append(r);
+  r.querySelector('button').onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:g.start,end:g.end,note:'reviewed'})});reload();};
+  c.append(r);
  }
- view.append(actions);
-
- // Manual add/remove within the day.
  const form=el('<div class="card"><b>Correct this day</b>'+
-   '<div class="row"><label>From<input type="time" id="cs" value="12:00"></label>'+
-   '<label>To<input type="time" id="ce" value="13:00"></label>'+
-   '<button class="act" id="add">Add work</button><button class="act" id="rm">Mark private</button></div></div>');
- view.append(form);
- const toTs=id=>{const[h,m]=document.getElementById(id).value.split(':').map(Number);return d.dayStart+((h*60+m)*60000);};
- document.getElementById('add').onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:toTs('cs'),end:toTs('ce')})});renderReload(d.dayStart);};
- document.getElementById('rm').onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'remove_work',start:toTs('cs'),end:toTs('ce')})});renderReload(d.dayStart);};
- document.getElementById('back').onclick=()=>TABS.week();
+   '<div class="row"><label>From<input type="time" class="cs" value="12:00"></label>'+
+   '<label>To<input type="time" class="ce" value="13:00"></label>'+
+   '<button class="act add">Add work</button><button class="act rm">Mark private</button></div></div>');
+ c.append(form);
+ const toTs=inp=>{const[h,m]=inp.value.split(':').map(Number);return d.dayStart+((h*60+m)*60000);};
+ form.querySelector('.add').onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:toTs(form.querySelector('.cs')),end:toTs(form.querySelector('.ce'))})});reload();};
+ form.querySelector('.rm').onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'remove_work',start:toTs(form.querySelector('.cs')),end:toTs(form.querySelector('.ce'))})});reload();};
 }
-async function renderReload(dayStart){const wk=await api('/week?offset='+weekOffset);const d=wk.days.find(x=>x.dayStart===dayStart)||wk.days[0];renderDay(d);}
+// Re-fetch and re-render the week in place; dayLane reopens the expanded day.
+async function reload(){const [st,wk]=await Promise.all([api('/status'),api('/week?offset='+weekOffset)]);renderWeek(st,wk);}
 
 function renderSettings(s){
  view.innerHTML='<h2>Settings</h2>';
