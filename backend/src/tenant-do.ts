@@ -188,8 +188,14 @@ export class TenantDO extends DurableObject<Env> {
     // `start` regardless of the span the client sent, so it is unambiguously
     // day-scoped and covers exactly one account-timezone day.
     if (kind === "holiday") {
-      const tz = this.getSettings().timezone;
+      const settings = this.getSettings();
+      const tz = settings.timezone;
       const dayStart = localDayStart(start, tz);
+      // A non-working day is already off; marking it a holiday is meaningless, so
+      // reject it rather than store a no-op holiday.
+      if (!settings.workingWeekdays.includes(weekdayMon0(dayStart, tz))) {
+        throw new Error("cannot mark a non-working day as a holiday");
+      }
       start = dayStart;
       end = addLocalDays(dayStart, 1, tz);
     }

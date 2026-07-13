@@ -123,6 +123,8 @@ main{max-width:900px;margin:0 auto;padding:1rem}
  background:none;border:1px solid transparent;border-radius:6px;color:var(--fg);padding:.3rem .4rem;cursor:pointer;font-size:.8rem;font-variant-numeric:tabular-nums}
 .prow:hover{background:var(--panel)}
 .prow.sel{border-color:var(--fg);background:var(--panel)}
+.prow.disabled{opacity:.45;cursor:default}
+.prow.disabled:hover{background:none}
 .prow .pn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .adv{margin-top:.4rem}
 .adv summary{cursor:pointer;font-size:.85rem;padding:.2rem 0;color:var(--muted)}
@@ -211,6 +213,15 @@ function verbFor(t){
  if(t==='removed')return{label:'Restore as work',act:'restore'};
  return null;
 }
+// A plain idle gap that runs from or to local midnight (e.g. an overnight
+// 00:00–08:00 stretch, or evening idle ending at 24:00) is almost never work, so
+// it is not selectable — an accidental tap must not count it. The manual
+// exact-times control remains for the rare genuine case.
+function canSelect(d,p){
+ if(!p||p.type!=='gap')return !!p;
+ const dEnd=d.periods.length?d.periods[d.periods.length-1].end:d.dayStart+86400000;
+ return p.start!==d.dayStart&&p.end!==dEnd;
+}
 
 // One day = one inline lane: label · full 0–24h timeline+ruler · numbers, with
 // an in-place expandable panel. Every period of the day is a selectable object:
@@ -243,6 +254,7 @@ function dayLane(d,i,now){
  // and render the action strip. Resolving by index keeps tiny segments usable —
  // a click anywhere on the track maps to the period covering that instant.
  const select=idx=>{
+  if(!canSelect(d,d.periods[idx]))return; // midnight-touching idle gaps are inert
   selPeriod={dayStart:d.dayStart,idx};
   for(const s of lane.querySelectorAll('.seg'))s.classList.toggle('sel',Number(s.dataset.i)===idx);
   for(const r of lane.querySelectorAll('.prow'))r.classList.toggle('sel',Number(r.dataset.i)===idx);
@@ -301,22 +313,27 @@ function buildDetail(lane,d){
   dayacts.append(b);
  }
  // Day-level holiday toggle: a full-day marker that zeroes the norm (credit-only).
- const hb=el('<button class="act holiday">'+(d.isHoliday?'Clear holiday':'Mark as holiday')+'</button>');
- hb.onclick=async()=>{
-  if(d.isHoliday)for(const id of (d.holidayCorrectionIds||[]))await api('/corrections/'+id,{method:'DELETE'});
-  else await api('/corrections',{method:'POST',body:JSON.stringify({kind:'holiday',start:d.dayStart,end:d.dayStart+86400000})});
-  reload();
- };
- dayacts.append(hb);
- c.append(dayacts);
+ // Only offered on working days — a non-working day is already off, so there is
+ // nothing to relieve. (A day already marked can still be cleared, defensively.)
+ if(d.isWorkingDay||d.isHoliday){
+  const hb=el('<button class="act holiday">'+(d.isHoliday?'Clear holiday':'Mark as holiday')+'</button>');
+  hb.onclick=async()=>{
+   if(d.isHoliday)for(const id of (d.holidayCorrectionIds||[]))await api('/corrections/'+id,{method:'DELETE'});
+   else await api('/corrections',{method:'POST',body:JSON.stringify({kind:'holiday',start:d.dayStart,end:d.dayStart+86400000})});
+   reload();
+  };
+  dayacts.append(hb);
+ }
+ if(dayacts.childElementCount)c.append(dayacts);
  // Mirrored period list — the accessible / precision selection path.
  const list=el('<div class="plist"></div>');
  d.periods.forEach((p,idx)=>{
-  const row=el('<button class="prow" data-i="'+idx+'"><span class="pt '+p.type+'"></span>'+
+  const dis=!canSelect(d,p); // overnight idle gaps are not selectable
+  const row=el('<button class="prow'+(dis?' disabled':'')+'" data-i="'+idx+'"'+(dis?' disabled':'')+'><span class="pt '+p.type+'"></span>'+
     '<span class="pr">'+clock(p.start)+'–'+clock(p.end)+'</span>'+
     '<span class="pd muted">'+hm(p.end-p.start)+'</span>'+
     '<span class="pn muted">'+TYPELABEL[p.type]+'</span></button>');
-  row.onclick=()=>lane.__select(idx);
+  if(!dis)row.onclick=()=>lane.__select(idx);
   list.append(row);
  });
  c.append(list);
