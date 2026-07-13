@@ -36,9 +36,9 @@ export function renderApp(identity: Identity, admin: boolean, accountId: string)
 const CSS = `
 :root{color-scheme:light dark;--bg:#fff;--fg:#111;--muted:#666;--line:#ddd;--line2:#cfd3da;
 --panel:#f6f8fb;--panel2:#eef1f6;--tick:#aab2be;--tick-strong:#7c8593;--tick-faint:#cdd3dc;--idle:#c9ced6;
---sensor:#2a7ade;--bridged:#5bb98b;--manual:#a970ff;--review:#e0a458;--remove:#d05;--pos:#2e9e6b;--neg:#d05;}
+--sensor:#2a7ade;--bridged:#1e58a0;--review:#e0a458;--remove:#d05;--pos:#2e9e6b;--neg:#d05;--excluded:#8b95a6;}
 @media (prefers-color-scheme:dark){:root{--bg:#14161a;--fg:#e8e8e8;--muted:#9aa;--line:#333;--line2:#3a414b;
---panel:#1b1e24;--panel2:#22262e;--tick:#4a525d;--tick-strong:#6b7480;--tick-faint:#333a43;--idle:#3a414b;--pos:#4fc98d;--neg:#ff5c86;}}
+--panel:#1b1e24;--panel2:#22262e;--tick:#4a525d;--tick-strong:#6b7480;--tick-faint:#333a43;--idle:#3a414b;--pos:#4fc98d;--neg:#ff5c86;--excluded:#7c8698;}}
 *{box-sizing:border-box}
 body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--fg)}
 header{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem;border-bottom:1px solid var(--line)}
@@ -52,7 +52,7 @@ main{max-width:900px;margin:0 auto;padding:1rem}
 .card{border:1px solid var(--line);border-radius:10px;padding:.75rem 1rem;margin:.5rem 0}
 .day{cursor:pointer}
 .day.today{outline:2px solid var(--sensor)}
-.balance.pos{color:var(--bridged)}.balance.neg{color:var(--remove)}
+.balance.pos{color:var(--pos)}.balance.neg{color:var(--neg)}
 .muted{color:var(--muted);font-size:.85rem}
 .big{font-size:1.4rem;font-weight:600}
 .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;margin:.5rem 0 1rem}
@@ -78,10 +78,10 @@ main{max-width:900px;margin:0 auto;padding:1rem}
  background-size:100% 30px,100% 16px,100% 8px;background-position:left bottom;background-repeat:repeat-x}
 .seg{position:absolute;top:5px;height:14px;border-radius:3px;min-width:2px}
 .seg.sensor{background:var(--sensor)}
-.seg.auto_bridged{background:repeating-linear-gradient(45deg,var(--bridged) 0 5px,transparent 5px 10px),var(--idle)}
-.seg.manual_added{background:var(--manual)}
-.seg.review{background:var(--review);opacity:.5}
-.seg.removed{background:repeating-linear-gradient(45deg,var(--review) 0 4px,rgba(127,127,127,.12) 4px 8px)}
+.seg.auto_bridged{background:var(--bridged)}
+.seg.manual_added{background-color:var(--sensor);background-image:radial-gradient(rgba(255,255,255,.7) 1px,transparent 1.5px);background-size:5px 5px;background-position:center}
+.seg.review{background:repeating-linear-gradient(45deg,rgba(224,164,88,.22) 0 3px,transparent 3px 7px);border:1.5px solid var(--review)}
+.seg.removed{background:repeating-linear-gradient(45deg,rgba(139,149,166,.22) 0 3px,transparent 3px 7px);border:1.5px solid var(--excluded)}
 .hours{position:relative;height:.85rem;margin-top:2px;font-size:.6rem;color:var(--muted)}
 .hours span{position:absolute;transform:translateX(-50%)}
 .hours span:first-child{transform:none}.hours span:last-child{transform:translateX(-100%)}
@@ -90,8 +90,10 @@ main{max-width:900px;margin:0 auto;padding:1rem}
 .legend{display:flex;flex-wrap:wrap;gap:.15rem .8rem;font-size:.75rem;margin:.1rem 0 .6rem}
 .legend span{display:inline-flex;align-items:center;gap:.3rem;color:var(--muted)}
 .swatch{width:.8rem;height:.8rem;border-radius:2px;display:inline-block}
-.swatch.auto_bridged{background:repeating-linear-gradient(45deg,var(--bridged) 0 3px,transparent 3px 6px),var(--idle)}
-.swatch.removed{background:repeating-linear-gradient(45deg,var(--review) 0 3px,rgba(127,127,127,.12) 3px 6px)}
+.swatch.auto_bridged{background:var(--bridged)}
+.swatch.manual_added{background-color:var(--sensor);background-image:radial-gradient(rgba(255,255,255,.7) 1px,transparent 1.4px);background-size:4px 4px;background-position:center}
+.swatch.review{background:repeating-linear-gradient(45deg,rgba(224,164,88,.25) 0 3px,transparent 3px 6px);border:1px solid var(--review)}
+.swatch.removed{background:repeating-linear-gradient(45deg,rgba(139,149,166,.25) 0 3px,transparent 3px 6px);border:1px solid var(--excluded)}
 @media (max-width:640px){.summary{grid-template-columns:repeat(2,1fr)}
  .lane-head{grid-template-columns:1fr auto;grid-template-areas:"dl nums" "tl tl";row-gap:.45rem}
  .dl{grid-area:dl}.nums{grid-area:nums}.tl{grid-area:tl}}
@@ -192,8 +194,8 @@ function buildDetail(c,d){
  c.append(el('<div class="row"><span class="muted">gross '+hm(d.grossMs)+' · lunch −'+hm(d.lunchMs)+' · worked '+hm(d.workedMs)+'</span></div>'));
  c.append(el('<div class="legend"><span><i class="swatch" style="background:var(--sensor)"></i>measured</span>'+
    '<span><i class="swatch auto_bridged"></i>auto-bridged</span>'+
-   '<span><i class="swatch" style="background:var(--manual)"></i>manual</span>'+
-   '<span><i class="swatch" style="background:var(--review);opacity:.6"></i>excluded (review)</span>'+
+   '<span><i class="swatch manual_added"></i>added by you</span>'+
+   '<span><i class="swatch review"></i>excluded (review)</span>'+
    '<span><i class="swatch removed"></i>excluded (removed)</span></div>'));
  if(d.reviewableGaps.length===0 && d.removedSpans.length===0 && d.spans.length===0)c.append(el('<div class="muted">No activity.</div>'));
  for(const g of d.reviewableGaps){
