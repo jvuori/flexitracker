@@ -132,6 +132,7 @@ main{max-width:900px;margin:0 auto;padding:1rem}
  .lane-head{grid-template-columns:1fr auto;grid-template-areas:"dl nums" "tl tl";row-gap:.45rem}
  .dl{grid-area:dl}.nums{grid-area:nums}.tl{grid-area:tl}}
 button.act{border:1px solid var(--line);background:none;color:var(--fg);padding:.25rem .5rem;border-radius:5px;cursor:pointer;font-size:.8rem}
+button.act:disabled{opacity:.4;cursor:not-allowed}
 input,select{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:5px;padding:.35rem}
 label{display:block;margin:.4rem 0 .15rem;font-size:.85rem}
 .wdays{display:flex;flex-wrap:wrap;gap:.4rem;margin:.15rem 0 .35rem}
@@ -344,8 +345,23 @@ function buildDetail(lane,d){
    '<button class="act add">Add work</button><button class="act rm">Mark private</button></div></details>');
  c.append(adv);
  const toTs=inp=>{const[h,m]=inp.value.split(':').map(Number);return d.dayStart+((h*60+m)*60000);};
- adv.querySelector('.add').onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:toTs(adv.querySelector('.cs')),end:toTs(adv.querySelector('.ce'))})});reload();};
- adv.querySelector('.rm').onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'remove_work',start:toTs(adv.querySelector('.cs')),end:toTs(adv.querySelector('.ce'))})});reload();};
+ const cs=adv.querySelector('.cs'),ce=adv.querySelector('.ce'),addb=adv.querySelector('.add'),rm=adv.querySelector('.rm');
+ // Disable each button when the entered range would be a no-op (also covers an
+ // inverted range and an empty day/weekend): "Add work" only adds currently
+ // non-work time (a gap, reviewable, or previously-removed period); "Mark
+ // private" only removes counted sensor/auto-bridged time (over manual/other it
+ // does nothing — add_work wins over remove).
+ const overlaps=types=>{const s=toTs(cs),e=toTs(ce);return e>s&&d.periods.some(p=>types.includes(p.type)&&p.end>s&&p.start<e);};
+ // A disabled button keeps a title so hovering explains why it is greyed out.
+ const sync=()=>{
+  const canAdd=overlaps(['gap','review','removed']),canRm=overlaps(['sensor','auto_bridged']);
+  addb.disabled=!canAdd;rm.disabled=!canRm;
+  addb.title=canAdd?'':'Nothing to add in this range — it is already counted as work. Add work only fills a gap, a reviewable break, or a previously removed period.';
+  rm.title=canRm?'':'Nothing to remove in this range — it has no counted work. Mark private only excludes measured or auto-bridged time.';
+ };
+ cs.addEventListener('input',sync);ce.addEventListener('input',sync);sync();
+ addb.onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:toTs(cs),end:toTs(ce)})});reload();};
+ rm.onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'remove_work',start:toTs(cs),end:toTs(ce)})});reload();};
 }
 
 // Render the contextual action strip for the selected period (or a hint).
