@@ -260,3 +260,43 @@ describe("computeWeek", () => {
     expect(w.weeklyBalanceMs).toBe(7.5 * H - S.weeklyNormMin * MIN);
   });
 });
+
+describe("non-working days credit only", () => {
+  const DAY = 24 * H;
+
+  it("a non-working day with work credits exactly the worked time", () => {
+    // Saturday (weekday 5) is not in the default Mon–Fri working set.
+    const d = computeDay([active(9, 0, 12, 0)], [], day, S, 5);
+    expect(d.isWorkingDay).toBe(false);
+    expect(d.normMs).toBe(0);
+    expect(d.workedMs).toBe(3 * H);
+    expect(d.balanceMs).toBe(d.workedMs);
+    expect(d.balanceMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("weekend work adds to the weekly balance", () => {
+    const satStart = day + 5 * DAY; // Saturday of this week
+    const events: RawEvent[] = [
+      { machine_id: "m", ts: satStart + 9 * H, kind: "active" },
+      { machine_id: "m", ts: satStart + 12 * H, kind: "idle" },
+    ];
+    const checkTime = day + 7 * DAY;
+    const worked = computeWeek(day, events, [], S, checkTime);
+    const empty = computeWeek(day, [], [], S, checkTime);
+    expect(worked.days[5]!.isWorkingDay).toBe(false);
+    expect(worked.days[5]!.balanceMs).toBe(3 * H);
+    expect(worked.weeklyBalanceMs - empty.weeklyBalanceMs).toBe(3 * H);
+  });
+
+  it("flipping a weekday out of the working set zeroes its norm", () => {
+    const noMonday: Settings = { ...S, workingWeekdays: [1, 2, 3, 4] };
+    const off = computeDay([], [], day, noMonday, 0); // Monday, now non-working, no work
+    expect(off.isWorkingDay).toBe(false);
+    expect(off.normMs).toBe(0);
+    expect(off.balanceMs).toBe(0);
+    // Still a working day under the default set: a no-work day owes the norm.
+    const on = computeDay([], [], day, S, 0);
+    expect(on.normMs).toBe(S.dailyNormMin * MIN);
+    expect(on.balanceMs).toBe(-S.dailyNormMin * MIN);
+  });
+});

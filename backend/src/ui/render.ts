@@ -62,6 +62,14 @@ main{max-width:900px;margin:0 auto;padding:1rem}
 .stat .v.pos{color:var(--pos)}.stat .v.neg{color:var(--neg)}
 .lane{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:.55rem .65rem;margin:.4rem 0}
 .lane.today{border-color:var(--sensor);box-shadow:inset 0 0 0 1px var(--sensor)}
+/* Non-working days recede: a faint neutral wash (over --panel, distinct from the
+   --panel2 track), a dashed border as a non-colour cue, and a muted label. */
+.lane.off{background-image:linear-gradient(rgba(128,136,150,.09),rgba(128,136,150,.09));border-style:dashed}
+.lane.off .dl b{color:var(--muted)}
+.lane.today.off{border-style:solid} /* today keeps its emphasis */
+.offtag{margin-left:.35rem;padding:0 .28rem;font-size:.6rem;text-transform:uppercase;letter-spacing:.03em;
+ color:var(--muted);border:1px solid var(--line2);border-radius:4px;vertical-align:middle}
+.nums .lunch{display:block;font-size:.72rem;color:var(--muted)}
 .lane-head{display:grid;grid-template-columns:96px 1fr 118px;gap:.6rem;align-items:center}
 .dl{font-size:.8rem;line-height:1.2;cursor:pointer;user-select:none}
 .dl b{display:block;font-size:.9rem}.dl .date{color:var(--muted)}
@@ -122,6 +130,8 @@ main{max-width:900px;margin:0 auto;padding:1rem}
 button.act{border:1px solid var(--line);background:none;color:var(--fg);padding:.25rem .5rem;border-radius:5px;cursor:pointer;font-size:.8rem}
 input,select{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:5px;padding:.35rem}
 label{display:block;margin:.4rem 0 .15rem;font-size:.85rem}
+.wdays{display:flex;flex-wrap:wrap;gap:.4rem;margin:.15rem 0 .35rem}
+.wd{display:inline-flex;align-items:center;gap:.3rem;margin:0;font-size:.85rem;padding:.3rem .55rem;border:1px solid var(--line);border-radius:6px;cursor:pointer;user-select:none}
 code{background:rgba(127,127,127,.15);padding:.15rem .35rem;border-radius:4px;word-break:break-all}
 table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:.35rem;border-bottom:1px solid var(--line);font-size:.85rem}
 `;
@@ -140,6 +150,10 @@ async function api(path,opts){const r=await fetch('/api'+path,Object.assign({hea
  return r.status===204?null:r.json();}
 function hm(ms){const neg=ms<0;ms=Math.abs(ms);const m=Math.round(ms/60000);const h=Math.floor(m/60);
  return (neg?'-':'')+h+'h '+String(m%60).padStart(2,'0')+'m';}
+// Balance-only signed format: '+' for a surplus, '-' for a deficit, no sign for
+// zero. Durations keep unsigned hm(); balances use bal() so surplus/deficit read
+// at a glance.
+function bal(ms){const r=hm(Math.abs(ms));return ms>0?'+'+r:ms<0?'-'+r:r;}
 function round30(ms){return Math.round(ms/1800000)*1800000;}
 function clock(ts){return new Intl.DateTimeFormat('en-GB',{timeZone:TZ,hour:'2-digit',minute:'2-digit'}).format(ts);}
 function el(html){const t=document.createElement('template');t.innerHTML=html.trim();return t.content.firstChild;}
@@ -178,7 +192,7 @@ function renderWeek(st,wk){
    stat('Worked',hm(wk.weeklyWorkedMs))+
    stat('Weekly norm',hm(wk.weeklyNormMs))+
    stat('Lunch',hm(lunchMs))+
-   stat('Balance',hm(wk.weeklyBalanceMs),wk.weeklyBalanceMs>=0?'pos':'neg')+'</div>'));
+   stat('Balance',bal(wk.weeklyBalanceMs),wk.weeklyBalanceMs>=0?'pos':'neg')+'</div>'));
  const now=Date.now();
  wk.days.forEach((d,i)=>view.append(dayLane(d,i,now)));
  document.getElementById('prev').onclick=()=>{weekOffset--;openDay=null;TABS.week();};
@@ -208,12 +222,16 @@ function dayLane(d,i,now){
  let hrs='';for(let h=0;h<=24;h++)hrs+='<span style="left:'+(h/24*100)+'%">'+h+'</span>';
  const balCls=d.balanceMs>=0?'pos':'neg';
  const isToday=now>=d.dayStart&&now<d.dayStart+DAY;
- const lane=el('<div class="lane'+(isToday?' today':'')+(d.dayStart===openDay?' open':'')+'">'+
+ // Non-working days recede (see .lane.off); the daily balance is signed (bal),
+ // and a non-working day with a zero balance shows a neutral placeholder.
+ const balTxt=(d.isWorkingDay||d.balanceMs!==0)?bal(d.balanceMs):'—';
+ const lane=el('<div class="lane'+(isToday?' today':'')+(d.isWorkingDay?'':' off')+(d.dayStart===openDay?' open':'')+'">'+
    '<div class="lane-head">'+
-   '<div class="dl"><b><span class="chev">▶</span>'+DAYNAMES[i]+'</b><span class="date">'+dayFmt(d.dayStart)+'</span></div>'+
+   '<div class="dl"><b><span class="chev">▶</span>'+DAYNAMES[i]+'</b><span class="date">'+dayFmt(d.dayStart)+(d.isWorkingDay?'':'<span class="offtag">off</span>')+'</span></div>'+
    '<div class="tl"><div class="track">'+bars+'</div><div class="hours">'+hrs+'</div></div>'+
    '<div class="nums"><span class="worked">'+hm(round30(d.workedMs))+'</span>'+
-     '<span class="bal '+balCls+'">'+(d.isWorkingDay?hm(d.balanceMs):'—')+'</span></div>'+
+     (d.lunchMs>0?'<span class="lunch">lunch −'+hm(d.lunchMs)+'</span>':'')+
+     '<span class="bal '+balCls+'">'+balTxt+'</span></div>'+
    '</div><div class="detail"></div></div>');
  buildDetail(lane,d);
  const track=lane.querySelector('.track');
@@ -322,13 +340,19 @@ function renderSettings(s){
  f.querySelector('#s_timezone').placeholder=tzGuess;
  field('workdayStartMin','Workday start (min from midnight)',s.workdayStartMin);
  field('workdayEndMin','Workday end (min)',s.workdayEndMin);
+ // Working days: seven weekdays (Mon–Sun), default Mon–Fri. Unchecked days are
+ // non-working (norm 0, credit-only). Collected into workingWeekdays on save.
+ f.append(el('<label>Working days</label>'));
+ const wd=el('<div class="wdays"></div>');
+ DAYNAMES.forEach((name,i)=>wd.append(el('<label class="wd"><input type="checkbox" id="wd_'+i+'"'+(s.workingWeekdays.includes(i)?' checked':'')+'>'+name+'</label>')));
+ f.append(wd);
  field('dailyNormMin','Daily norm (min)',s.dailyNormMin);
  field('weeklyNormMin','Weekly norm (min)',s.weeklyNormMin);
  field('privateLeaveThresholdSec','Private-leave threshold (sec)',s.privateLeaveThresholdSec);
  field('lunchDeductMin','Lunch deduction (min)',s.lunchDeductMin);
  field('lunchThresholdMin','Lunch applies over (min)',s.lunchThresholdMin);
  const save=el('<button class="act" style="margin-top:.75rem">Save</button>');
- save.onclick=async()=>{const patch={};for(const k of ['timezone','workdayStartMin','workdayEndMin','dailyNormMin','weeklyNormMin','privateLeaveThresholdSec','lunchDeductMin','lunchThresholdMin']){const v=document.getElementById('s_'+k).value;patch[k]=k==='timezone'?v:Number(v);}await api('/settings',{method:'PUT',body:JSON.stringify(patch)});save.textContent='Saved ✓';};
+ save.onclick=async()=>{const patch={};for(const k of ['timezone','workdayStartMin','workdayEndMin','dailyNormMin','weeklyNormMin','privateLeaveThresholdSec','lunchDeductMin','lunchThresholdMin']){const v=document.getElementById('s_'+k).value;patch[k]=k==='timezone'?v:Number(v);}patch.workingWeekdays=DAYNAMES.map((_,i)=>i).filter(i=>document.getElementById('wd_'+i).checked);await api('/settings',{method:'PUT',body:JSON.stringify(patch)});save.textContent='Saved ✓';};
  f.append(save);view.append(f);
 }
 
