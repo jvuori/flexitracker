@@ -184,6 +184,15 @@ export class TenantDO extends DurableObject<Env> {
   // ---- corrections -------------------------------------------------------
 
   addCorrection(kind: CorrectionKind, start: number, end: number, note: string | null): number {
+    // A holiday is a full-day marker: anchor it to the local day containing
+    // `start` regardless of the span the client sent, so it is unambiguously
+    // day-scoped and covers exactly one account-timezone day.
+    if (kind === "holiday") {
+      const tz = this.getSettings().timezone;
+      const dayStart = localDayStart(start, tz);
+      start = dayStart;
+      end = addLocalDays(dayStart, 1, tz);
+    }
     if (end <= start) throw new Error("correction end must be after start");
     this.sql.exec(
       "INSERT INTO correction (kind, start_ts, end_ts, note, created_at) VALUES (?, ?, ?, ?, ?)",

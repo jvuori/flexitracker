@@ -16,7 +16,7 @@ export interface RawEvent {
   kind: EventKind;
 }
 
-export type CorrectionKind = "add_work" | "remove_work";
+export type CorrectionKind = "add_work" | "remove_work" | "holiday";
 export interface Correction {
   kind: CorrectionKind;
   start: number;
@@ -49,6 +49,10 @@ export interface DayResult {
   /** Measured/bridged time excluded by a remove_work and not re-added. */
   removedSpans: Interval[];
   isWorkingDay: boolean;
+  /** Day is marked a holiday: its norm is zeroed (credit-only), like a day off. */
+  isHoliday: boolean;
+  /** Ids of the holiday correction(s) covering the day, for clearing it. */
+  holidayCorrectionIds: number[];
   grossMs: number; // sum of spans before lunch
   lunchMs: number; // deduction applied
   workedMs: number; // gross - lunch
@@ -197,10 +201,19 @@ export function computeDay(
 
   const grossMs = totalDuration(spans);
   const isWorkingDay = s.workingWeekdays.includes(weekdayMon0);
+  // Holiday markers are full-day corrections; they carry no interval math (they
+  // never enter the add/remove filters above) and only zero the day's norm.
+  const holidayCorr = corrections.filter(
+    (c) => c.kind === "holiday" && c.end > win.start && c.start < win.end,
+  );
+  const isHoliday = holidayCorr.length > 0;
+  const holidayCorrectionIds = holidayCorr
+    .filter((c) => c.id !== undefined)
+    .map((c) => c.id as number);
   const lunchMs =
     grossMs > s.lunchThresholdMin * MIN ? s.lunchDeductMin * MIN : 0;
   const workedMs = Math.max(0, grossMs - lunchMs);
-  const normMs = isWorkingDay ? s.dailyNormMin * MIN : 0;
+  const normMs = isWorkingDay && !isHoliday ? s.dailyNormMin * MIN : 0;
 
   return {
     dayStart,
@@ -211,6 +224,8 @@ export function computeDay(
     reviewableGaps,
     removedSpans,
     isWorkingDay,
+    isHoliday,
+    holidayCorrectionIds,
     grossMs,
     lunchMs,
     workedMs,
@@ -277,11 +292,19 @@ export function computeWeek(
     cursor = addLocalDays(cursor, 1, s.timezone);
   }
   const weeklyWorkedMs = days.reduce((sum, d) => sum + d.workedMs, 0);
+  // Each holiday on an otherwise-working weekday gives back one daily norm, so a
+  // week of holidays nets to zero instead of showing a full-week deficit. A
+  // holiday on an already-non-working day carried no norm, so it changes nothing.
+  const holidayReliefDays = days.filter((d) => d.isHoliday && d.isWorkingDay).length;
+  const weeklyNormMs = Math.max(
+    0,
+    s.weeklyNormMin * MIN - holidayReliefDays * s.dailyNormMin * MIN,
+  );
   return {
     weekStart,
     days,
     weeklyWorkedMs,
-    weeklyNormMs: s.weeklyNormMin * MIN,
-    weeklyBalanceMs: weeklyWorkedMs - s.weeklyNormMin * MIN,
+    weeklyNormMs,
+    weeklyBalanceMs: weeklyWorkedMs - weeklyNormMs,
   };
 }

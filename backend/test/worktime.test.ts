@@ -300,3 +300,61 @@ describe("non-working days credit only", () => {
     expect(on.balanceMs).toBe(-S.dailyNormMin * MIN);
   });
 });
+
+describe("holiday days", () => {
+  const DAY = 24 * H;
+  const hol = (dayStart: number, id = 1): Correction => ({
+    kind: "holiday",
+    start: dayStart,
+    end: dayStart + DAY,
+    id,
+  });
+
+  it("zeroes the norm of a working day and credits any work", () => {
+    // Monday (weekday 0) is a working day; marking it a holiday zeroes its norm.
+    const off = computeDay([], [hol(day)], day, S, 0);
+    expect(off.isHoliday).toBe(true);
+    expect(off.isWorkingDay).toBe(true);
+    expect(off.normMs).toBe(0);
+    expect(off.balanceMs).toBe(0);
+    // Work on a holiday still credits (worked − zero norm).
+    const worked = computeDay([active(9, 0, 11, 0)], [hol(day)], day, S, 0);
+    expect(worked.normMs).toBe(0);
+    expect(worked.workedMs).toBe(2 * H);
+    expect(worked.balanceMs).toBe(2 * H);
+  });
+
+  it("a holiday's worked time adds to the weekly balance", () => {
+    const events: RawEvent[] = [
+      { machine_id: "m", ts: day + 9 * H, kind: "active" },
+      { machine_id: "m", ts: day + 11 * H, kind: "idle" },
+    ];
+    const checkTime = day + 7 * DAY;
+    const worked = computeWeek(day, events, [hol(day)], S, checkTime);
+    const idle = computeWeek(day, [], [hol(day)], S, checkTime);
+    expect(worked.days[0]!.balanceMs).toBe(2 * H);
+    expect(worked.weeklyBalanceMs - idle.weeklyBalanceMs).toBe(2 * H);
+  });
+
+  it("one holiday on a working day reduces the weekly norm by one daily norm", () => {
+    const w = computeWeek(day, [], [hol(day)], S, day + 7 * DAY);
+    expect(w.weeklyNormMs).toBe(S.weeklyNormMin * MIN - S.dailyNormMin * MIN);
+  });
+
+  it("a full week of holidays nets to zero", () => {
+    // Holidays on all five working weekdays (Mon–Fri).
+    const holidays = [0, 1, 2, 3, 4].map((i) => hol(day + i * DAY, i + 1));
+    const w = computeWeek(day, [], holidays, S, day + 7 * DAY);
+    expect(w.days.slice(0, 5).every((d) => d.isHoliday && d.balanceMs === 0)).toBe(true);
+    expect(w.weeklyNormMs).toBe(0);
+    expect(w.weeklyBalanceMs).toBe(0);
+  });
+
+  it("a holiday on a non-working day leaves the weekly norm unchanged", () => {
+    const satStart = day + 5 * DAY; // Saturday is non-working by default
+    const w = computeWeek(day, [], [hol(satStart)], S, day + 7 * DAY);
+    expect(w.days[5]!.isHoliday).toBe(true);
+    expect(w.days[5]!.isWorkingDay).toBe(false);
+    expect(w.weeklyNormMs).toBe(S.weeklyNormMin * MIN);
+  });
+});

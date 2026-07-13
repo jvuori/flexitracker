@@ -120,12 +120,12 @@ api.put("/settings", async (c) => {
 
 api.post("/corrections", async (c) => {
   const body = (await c.req.json()) as {
-    kind: "add_work" | "remove_work";
+    kind: "add_work" | "remove_work" | "holiday";
     start: number;
     end: number;
     note?: string;
   };
-  if (body.kind !== "add_work" && body.kind !== "remove_work") {
+  if (body.kind !== "add_work" && body.kind !== "remove_work" && body.kind !== "holiday") {
     return c.json({ error: "invalid correction kind" }, 400);
   }
   const id = await tenant(c.env, c.get("accountId")).addCorrection(

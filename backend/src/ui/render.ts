@@ -69,6 +69,8 @@ main{max-width:900px;margin:0 auto;padding:1rem}
 .lane.today.off{border-style:solid} /* today keeps its emphasis */
 .offtag{margin-left:.35rem;padding:0 .28rem;font-size:.6rem;text-transform:uppercase;letter-spacing:.03em;
  color:var(--muted);border:1px solid var(--line2);border-radius:4px;vertical-align:middle}
+/* Holiday tag: a filled accent chip, distinct from the outline "off" chip. */
+.offtag.holiday{color:var(--bg);background:var(--review);border-color:var(--review)}
 .nums .lunch{display:block;font-size:.72rem;color:var(--muted)}
 .lane-head{display:grid;grid-template-columns:96px 1fr 118px;gap:.6rem;align-items:center}
 .dl{font-size:.8rem;line-height:1.2;cursor:pointer;user-select:none}
@@ -222,15 +224,17 @@ function dayLane(d,i,now){
  let hrs='';for(let h=0;h<=24;h++)hrs+='<span style="left:'+(h/24*100)+'%">'+h+'</span>';
  const balCls=d.balanceMs>=0?'pos':'neg';
  const isToday=now>=d.dayStart&&now<d.dayStart+DAY;
- // Non-working days recede (see .lane.off); the daily balance is signed (bal),
- // and a non-working day with a zero balance shows a neutral placeholder.
- const balTxt=(d.isWorkingDay||d.balanceMs!==0)?bal(d.balanceMs):'—';
- const lane=el('<div class="lane'+(isToday?' today':'')+(d.isWorkingDay?'':' off')+(d.dayStart===openDay?' open':'')+'">'+
+ // Zero-norm days (weekends and holidays) recede (see .lane.off) and credit only:
+ // signed balance (bal) when there's a credit, a neutral placeholder when zero.
+ const zeroNorm=!d.isWorkingDay||d.isHoliday;
+ const balTxt=(!zeroNorm||d.balanceMs!==0)?bal(d.balanceMs):'—';
+ const tag=d.isHoliday?'<span class="offtag holiday">holiday</span>':(d.isWorkingDay?'':'<span class="offtag">off</span>');
+ const lane=el('<div class="lane'+(isToday?' today':'')+(zeroNorm?' off':'')+(d.isHoliday?' holiday':'')+(d.dayStart===openDay?' open':'')+'">'+
    '<div class="lane-head">'+
-   '<div class="dl"><b><span class="chev">▶</span>'+DAYNAMES[i]+'</b><span class="date">'+dayFmt(d.dayStart)+(d.isWorkingDay?'':'<span class="offtag">off</span>')+'</span></div>'+
+   '<div class="dl"><b><span class="chev">▶</span>'+DAYNAMES[i]+'</b><span class="date">'+dayFmt(d.dayStart)+tag+'</span></div>'+
    '<div class="tl"><div class="track">'+bars+'</div><div class="hours">'+hrs+'</div></div>'+
    '<div class="nums"><span class="worked">'+hm(round30(d.workedMs))+'</span>'+
-     (d.lunchMs>0?'<span class="lunch">lunch −'+hm(d.lunchMs)+'</span>':'')+
+     (d.lunchMs>0?'<span class="lunch">Lunch '+hm(d.lunchMs)+'</span>':'')+
      '<span class="bal '+balCls+'">'+balTxt+'</span></div>'+
    '</div><div class="detail"></div></div>');
  buildDetail(lane,d);
@@ -282,7 +286,7 @@ async function fillDay(d){
 // fill, a mirrored selectable period list, and an advanced exact-times control.
 function buildDetail(lane,d){
  const c=lane.querySelector('.detail');
- c.append(el('<div class="row"><span class="muted">gross '+hm(d.grossMs)+' · lunch −'+hm(d.lunchMs)+' · worked '+hm(d.workedMs)+'</span></div>'));
+ c.append(el('<div class="row"><span class="muted">Total '+hm(d.grossMs)+' · Lunch '+hm(d.lunchMs)+' · Worked '+hm(d.workedMs)+'</span></div>'));
  c.append(el('<div class="legend"><span><i class="swatch" style="background:var(--sensor)"></i>measured</span>'+
    '<span><i class="swatch auto_bridged"></i>auto-bridged</span>'+
    '<span><i class="swatch manual_added"></i>added by you</span>'+
@@ -290,11 +294,21 @@ function buildDetail(lane,d){
    '<span><i class="swatch removed"></i>excluded (removed)</span>'+
    '<span><i class="swatch gap"></i>idle</span></div>'));
  c.append(el('<div class="strip"></div>'));
+ const dayacts=el('<div class="row"></div>');
  if(d.officeEnvelope){
   const b=el('<button class="act fillday">Mark whole day as work</button>');
   b.onclick=()=>fillDay(d);
-  const row=el('<div class="row"></div>');row.append(b);c.append(row);
+  dayacts.append(b);
  }
+ // Day-level holiday toggle: a full-day marker that zeroes the norm (credit-only).
+ const hb=el('<button class="act holiday">'+(d.isHoliday?'Clear holiday':'Mark as holiday')+'</button>');
+ hb.onclick=async()=>{
+  if(d.isHoliday)for(const id of (d.holidayCorrectionIds||[]))await api('/corrections/'+id,{method:'DELETE'});
+  else await api('/corrections',{method:'POST',body:JSON.stringify({kind:'holiday',start:d.dayStart,end:d.dayStart+86400000})});
+  reload();
+ };
+ dayacts.append(hb);
+ c.append(dayacts);
  // Mirrored period list — the accessible / precision selection path.
  const list=el('<div class="plist"></div>');
  d.periods.forEach((p,idx)=>{
