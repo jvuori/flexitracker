@@ -13,6 +13,26 @@ export interface Span extends Interval {
   provenance: Provenance;
 }
 
+/**
+ * A typed period in a day's complete, gap-free partition. Every instant of the
+ * day belongs to exactly one period. Counted: sensor / auto_bridged /
+ * manual_added. Not counted: review (in-hours idle excluded as private leave),
+ * removed (measured/bridged time a remove_work excluded), gap (plain idle).
+ */
+export type PeriodType =
+  | "sensor"
+  | "auto_bridged"
+  | "manual_added"
+  | "review"
+  | "removed"
+  | "gap";
+
+export interface Period extends Interval {
+  type: PeriodType;
+  /** For manual_added / removed periods: the correction row ids covering it. */
+  correctionIds?: number[];
+}
+
 export function duration(i: Interval): number {
   return Math.max(0, i.end - i.start);
 }

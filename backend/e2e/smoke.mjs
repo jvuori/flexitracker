@@ -81,6 +81,42 @@ async function run() {
     await j(`/api/corrections/${corr.id}`, { method: "DELETE" }).catch(() => {});
   }
 
+  // Direct-timeline-editing payload: a complete partition, the office-day
+  // envelope, and per-period correction identity — the fields the select-a-
+  // period + whole-day-fill UI consumes. (The fill itself is client-computed
+  // from these gap/review periods, so validating them covers it transitively.)
+  {
+    const d0 = (await j("/api/week?offset=0")).days[0];
+    const ps = [...d0.periods].sort((a, b) => a.start - b.start);
+    check("partition starts at day start", ps[0].start === d0.dayStart);
+    check(
+      "partition tiles the day (no gaps/overlaps)",
+      ps.every((p, i) => i === 0 || p.start === ps[i - 1].end),
+    );
+    check("partition ends at day end", ps[ps.length - 1].end === d0.dayStart + 24 * H);
+    check(
+      "office envelope spans presence within the window",
+      !!d0.officeEnvelope && d0.officeEnvelope.start === at(8) && d0.officeEnvelope.end === at(16),
+      `env ${JSON.stringify(d0.officeEnvelope)}`,
+    );
+
+    const add = await j("/api/corrections", {
+      method: "POST",
+      body: JSON.stringify({ kind: "add_work", start: at(10), end: at(13) }),
+    });
+    try {
+      const d = (await j("/api/week?offset=0")).days[0];
+      const manual = d.periods.find((p) => p.type === "manual_added" && p.start === at(10));
+      check(
+        "manual period carries its correction id (enables undo)",
+        !!manual && (manual.correctionIds || []).includes(add.id),
+        `ids ${manual && JSON.stringify(manual.correctionIds)}`,
+      );
+    } finally {
+      await j(`/api/corrections/${add.id}`, { method: "DELETE" }).catch(() => {});
+    }
+  }
+
   // Re-include after removal: a remove_work must not permanently defeat a later
   // add_work on the same span (regression — "15–16 is a gap I can't fill back").
   {

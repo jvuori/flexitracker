@@ -10,6 +10,8 @@
 export const MACHINES = ["Laptop", "Desktop"];
 
 // wd: 0=Mon..6=Sun. m: machine index. s/e: [hour, minute].
+// ed (optional): end weekday, for a single effort that runs past midnight — the
+// calculation splits it at the day boundary (00:00) into two per-day periods.
 export const WEEKS = [
   {
     offset: 0,
@@ -140,6 +142,78 @@ export const WEEKS = [
         blocks: [{ m: 0, s: [8, 0], e: [16, 30] }],
         corrections: [],
         expect: { worked: 480, balance: 30, reviewable: 0 },
+      },
+    ],
+  },
+  {
+    offset: -3,
+    label: "three weeks ago — realistic variation, out-of-hours & cross-midnight",
+    weeklyWorked: 2342,
+    weeklyBalance: 92,
+    days: [
+      {
+        wd: 0,
+        // Natural arrival/breaks — nobody starts at 08:00:00. All in-hours gaps
+        // are short and auto-bridged, so the whole day counts continuously.
+        label: "realistic day 08:07–16:18, coffee + lunch gaps bridged",
+        blocks: [
+          { m: 0, s: [8, 7], e: [10, 12] },
+          { m: 0, s: [10, 29], e: [12, 3] },
+          { m: 0, s: [12, 41], e: [16, 18] },
+        ],
+        corrections: [],
+        // gross 491 (08:07–16:18, gaps bridged) − 30 lunch = 461.
+        expect: { worked: 461, balance: 11, reviewable: 0 },
+      },
+      {
+        wd: 1,
+        label: "early bird 07:48 + evening out-of-hours session",
+        blocks: [
+          { m: 0, s: [7, 48], e: [12, 15] },
+          { m: 0, s: [12, 52], e: [15, 30] },
+          { m: 0, s: [19, 40], e: [21, 5] },
+        ],
+        corrections: [],
+        // day 07:48–15:30 bridged = 462, evening 85 (counted, not bridged); −30 lunch.
+        expect: { worked: 517, balance: 67, reviewable: 0 },
+      },
+      {
+        wd: 2,
+        label: "normal day + late session running past midnight into Thu",
+        blocks: [
+          { m: 0, s: [8, 5], e: [16, 10] },
+          { m: 0, s: [22, 40], e: [0, 50], ed: 3 }, // → Thu 00:50; Wed keeps 22:40–24:00
+        ],
+        corrections: [],
+        // 485 (day) + 80 (22:40–24:00) = 565 gross; −30 lunch.
+        expect: { worked: 535, balance: 85, reviewable: 0 },
+      },
+      {
+        wd: 3,
+        label: "midnight tail 00:00–00:50 (from Wed) + normal day",
+        blocks: [{ m: 0, s: [8, 20], e: [16, 0] }],
+        corrections: [],
+        // 50 (tail) + 460 (day) = 510 gross; −30 lunch.
+        expect: { worked: 480, balance: 30, reviewable: 0 },
+      },
+      {
+        wd: 4,
+        label: "short day + late session running past midnight into Sat",
+        blocks: [
+          { m: 0, s: [8, 33], e: [12, 7] },
+          { m: 0, s: [23, 15], e: [1, 30], ed: 5 }, // → Sat 01:30; Fri keeps 23:15–24:00
+        ],
+        corrections: [],
+        // 214 (morning) + 45 (23:15–24:00) = 259 gross; ≤ 360 so no lunch.
+        expect: { worked: 259, balance: -191, reviewable: 0 },
+      },
+      {
+        wd: 5,
+        label: "weekend midnight tail 00:00–01:30 (from Fri), no norm",
+        blocks: [],
+        corrections: [],
+        // 90 gross; Saturday is a non-working day so norm 0 → balance +90.
+        expect: { worked: 90, balance: 90, reviewable: 0 },
       },
     ],
   },

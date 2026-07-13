@@ -4,7 +4,7 @@
 
 import type { EventKind } from "../schema";
 import { clamp, duration, gaps, mergeIntervals, subtract, totalDuration } from "./interval";
-import type { Interval, Provenance, Span } from "./interval";
+import type { Interval, Period, PeriodType, Provenance, Span } from "./interval";
 import type { Settings } from "./settings";
 import { localDayStart, minuteOfDay, addLocalDays } from "./time";
 
@@ -21,12 +21,27 @@ export interface Correction {
   kind: CorrectionKind;
   start: number;
   end: number;
+  /** Row id, when the correction was loaded from storage (enables undo). */
+  id?: number;
 }
 
 export interface DayResult {
   dayStart: number;
   /** Working intervals after composition, each tagged with why it counts. */
   spans: Span[];
+  /**
+   * Complete, gap-free partition of the day: every instant belongs to exactly
+   * one typed period (counted or not, plain idle gaps included). This is the
+   * selectable surface the UI acts on — every action targets one period.
+   */
+  periods: Period[];
+  /**
+   * Envelope of the office day: from the natural start of the first presence
+   * period overlapping the configured office window to the natural end of the
+   * last. `null` when no presence overlaps the window. Drives "mark whole day
+   * as work"; the office-window boundary times are never used as endpoints.
+   */
+  officeEnvelope: Interval | null;
   /** Raw sensor-active intervals in the day — shown even when auto-bridged. */
   rawActive: Interval[];
   /** In-hours gaps excluded as private leave and available to reclassify. */
@@ -121,8 +136,12 @@ export function computeDay(
     else reviewable.push(g);
   }
 
-  const adds = clampAll(corrections.filter((c) => c.kind === "add_work"), win);
-  const removes = clampAll(corrections.filter((c) => c.kind === "remove_work"), win);
+  // Raw corrections (with ids) drive provenance attribution; the merged
+  // interval sets below drive the interval math.
+  const addCorr = corrections.filter((c) => c.kind === "add_work");
+  const removeCorr = corrections.filter((c) => c.kind === "remove_work");
+  const adds = clampAll(addCorr, win);
+  const removes = clampAll(removeCorr, win);
 
   // Compose the day as distinct provenance layers that never merge:
   //  - a remove_work carves its span out of the sensor/auto-bridged layers;
@@ -150,6 +169,32 @@ export function computeDay(
   // A reviewable gap the user included is no longer reviewable.
   const reviewableGaps = subtract(reviewable, adds);
 
+  // The complete partition: the counted/excluded/review layers above (pairwise
+  // disjoint by construction), plus every remaining instant as a plain gap.
+  const parts: Period[] = [
+    ...toPeriods(subtract(sensor, removes), "sensor"),
+    ...toPeriods(subtract(bridged, removes), "auto_bridged"),
+    ...toPeriods(manualAdded, "manual_added", addCorr),
+    ...toPeriods(reviewableGaps, "review"),
+    ...toPeriods(removedSpans, "removed", removeCorr),
+  ];
+  const partitionCovered = mergeIntervals(parts.map((p) => ({ start: p.start, end: p.end })));
+  parts.push(...toPeriods(subtract([win], partitionCovered), "gap"));
+  const periods = parts.sort((a, b) => a.start - b.start);
+
+  // Office-day envelope: presence spans overlapping the configured window
+  // define belonging; the envelope spans their natural boundaries (never the
+  // window times themselves). Drives the "mark whole day as work" fill.
+  const officeStart = dayStart + s.workdayStartMin * MIN;
+  const officeEnd = dayStart + s.workdayEndMin * MIN;
+  const belonging = sensor.filter((sp) => sp.end > officeStart && sp.start < officeEnd);
+  const officeEnvelope: Interval | null = belonging.length
+    ? {
+        start: Math.min(...belonging.map((b) => b.start)),
+        end: Math.max(...belonging.map((b) => b.end)),
+      }
+    : null;
+
   const grossMs = totalDuration(spans);
   const isWorkingDay = s.workingWeekdays.includes(weekdayMon0);
   const lunchMs =
@@ -160,6 +205,8 @@ export function computeDay(
   return {
     dayStart,
     spans,
+    periods,
+    officeEnvelope,
     rawActive,
     reviewableGaps,
     removedSpans,
@@ -174,6 +221,21 @@ export function computeDay(
 
 function tag(intervals: Interval[], provenance: Provenance): Span[] {
   return intervals.map((i) => ({ ...i, provenance }));
+}
+
+/**
+ * Tag intervals as partition periods. For manual/removed periods, attribute the
+ * ids of the corrections (with ids) whose original span overlaps each piece, so
+ * a single correction can be undone precisely.
+ */
+function toPeriods(intervals: Interval[], type: PeriodType, source?: Correction[]): Period[] {
+  return intervals.map((i) => {
+    if (!source) return { ...i, type };
+    const correctionIds = source
+      .filter((c) => c.id !== undefined && c.end > i.start && c.start < i.end)
+      .map((c) => c.id as number);
+    return { ...i, type, correctionIds };
+  });
 }
 
 function clampAll(intervals: Interval[], win: Interval): Interval[] {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Span } from "../src/worktime/interval";
+import type { Period, PeriodType, Span } from "../src/worktime/interval";
+import { duration } from "../src/worktime/interval";
 import { DEFAULT_SETTINGS } from "../src/worktime/settings";
 import type { Settings } from "../src/worktime/settings";
 import { computeDay, computeWeek, pairSpans, roundToStep } from "../src/worktime/worktime";
@@ -131,6 +132,96 @@ describe("computeDay corrections", () => {
       0,
     );
     expect(d2.removedSpans).toEqual([]); // re-added → no longer excluded
+  });
+});
+
+function periodsOf(d: { periods: Period[] }, type: PeriodType) {
+  return d.periods.filter((p) => p.type === type);
+}
+const COUNTED = new Set<PeriodType>(["sensor", "auto_bridged", "manual_added"]);
+
+describe("computeDay partition", () => {
+  it("tiles the whole day with no gaps or overlaps, counted sum == gross", () => {
+    const d = computeDay([active(8, 0, 10, 0), active(10, 20, 12, 0)], [], day, S, 0);
+    const ps = [...d.periods].sort((a, b) => a.start - b.start);
+    expect(ps[0]!.start).toBe(day);
+    for (let i = 1; i < ps.length; i++) expect(ps[i]!.start).toBe(ps[i - 1]!.end);
+    expect(ps[ps.length - 1]!.end).toBe(day + 24 * H);
+    const counted = ps.filter((p) => COUNTED.has(p.type)).reduce((n, p) => n + duration(p), 0);
+    expect(counted).toBe(d.grossMs);
+  });
+
+  it("emits out-of-hours idle as explicit gap periods, not holes", () => {
+    const d = computeDay([active(9, 0, 12, 0)], [], day, S, 0);
+    const gaps = periodsOf(d, "gap");
+    // Before 9 and after 12 are plain gaps.
+    expect(gaps.some((g) => g.start === day && g.end === at(9))).toBe(true);
+    expect(gaps.some((g) => g.start === at(12) && g.end === day + 24 * H)).toBe(true);
+  });
+
+  it("remove splits a straddling span and leaves uncounted sub-ranges as plain gaps", () => {
+    // sensor 9–10 and 13–14; a 3h reviewable gap 10–13 between them.
+    // remove_work 8–15 excludes only the counted 9–10 and 13–14; the empty
+    // 8–9 and 14–15 sub-ranges stay plain gaps, and 10–13 stays reviewable.
+    const rm: Correction = { kind: "remove_work", start: at(8), end: at(15) };
+    const d = computeDay([active(9, 0, 10, 0), active(13, 0, 14, 0)], [rm], day, S, 0);
+    expect(d.grossMs).toBe(0);
+    expect(periodsOf(d, "removed").map((p) => [p.start, p.end])).toEqual([
+      [at(9), at(10)],
+      [at(13), at(14)],
+    ]);
+    expect(periodsOf(d, "review").map((p) => [p.start, p.end])).toEqual([[at(10), at(13)]]);
+    // The empty sub-ranges of the remove (08–09, 14–15) are plain gaps, not
+    // marked removed (they merge into the surrounding idle).
+    const at830 = at(8, 30);
+    const at1430 = at(14, 30);
+    expect(d.periods.find((p) => p.start <= at830 && p.end > at830)!.type).toBe("gap");
+    expect(d.periods.find((p) => p.start <= at1430 && p.end > at1430)!.type).toBe("gap");
+  });
+
+  it("add wrapping real activity yields manual periods that keep the sensor un-merged", () => {
+    const add: Correction = { kind: "add_work", start: at(8), end: at(14), id: 42 };
+    const d = computeDay([active(9, 0, 12, 0)], [add], day, S, 0);
+    const manual = periodsOf(d, "manual_added");
+    expect(manual.map((p) => [p.start, p.end])).toEqual([
+      [at(8), at(9)],
+      [at(12), at(14)],
+    ]);
+    // Each manual period is attributed to the add correction id.
+    for (const p of manual) expect(p.correctionIds).toEqual([42]);
+    // The real activity keeps its own provenance, un-merged.
+    expect(periodsOf(d, "sensor").map((p) => [p.start, p.end])).toEqual([[at(9), at(12)]]);
+  });
+
+  it("removed periods carry the removing correction id", () => {
+    const rm: Correction = { kind: "remove_work", start: at(9), end: at(10), id: 7 };
+    const d = computeDay([active(8, 0, 12, 0)], [rm], day, S, 0);
+    expect(periodsOf(d, "removed").map((p) => p.correctionIds)).toEqual([[7]]);
+  });
+});
+
+describe("computeDay office envelope", () => {
+  // Default office window is 08:00–16:00.
+  it("uses natural boundaries of presence overlapping the window", () => {
+    const d = computeDay(
+      [
+        active(6, 0, 6, 40), // pre-work: ends before 08:00 → does not belong
+        active(7, 50, 8, 5), // overlaps 08:00 → belongs, natural start 07:50
+        active(10, 0, 11, 0),
+        active(15, 55, 16, 30), // overlaps 16:00 → belongs, natural end 16:30
+        active(20, 0, 21, 0), // evening → does not belong
+      ],
+      [],
+      day,
+      S,
+      0,
+    );
+    expect(d.officeEnvelope).toEqual({ start: at(7, 50), end: at(16, 30) });
+  });
+
+  it("is null when no presence overlaps the office window", () => {
+    const d = computeDay([active(20, 0, 21, 0)], [], day, S, 0);
+    expect(d.officeEnvelope).toBeNull();
   });
 });
 

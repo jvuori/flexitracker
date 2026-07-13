@@ -80,7 +80,9 @@ async function main() {
               batch_seq: seq++,
               events: [
                 { ts: tsOf(week.offset, day.wd, b.s), kind: "active" },
-                { ts: tsOf(week.offset, day.wd, b.e), kind: "idle" },
+                // `ed` (end weekday) lets a single work effort run past midnight;
+                // the calculation splits it at the day boundary via per-day clamp.
+                { ts: tsOf(week.offset, b.ed ?? day.wd, b.e), kind: "idle" },
               ],
             }),
           },

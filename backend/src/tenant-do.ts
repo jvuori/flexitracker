@@ -212,12 +212,12 @@ export class TenantDO extends DurableObject<Env> {
     return (
       this.sql
         .exec(
-          "SELECT kind, start_ts, end_ts FROM correction WHERE end_ts > ? AND start_ts < ?",
+          "SELECT id, kind, start_ts, end_ts FROM correction WHERE end_ts > ? AND start_ts < ?",
           from,
           to,
         )
-        .toArray() as { kind: CorrectionKind; start_ts: number; end_ts: number }[]
-    ).map((r) => ({ kind: r.kind, start: r.start_ts, end: r.end_ts }));
+        .toArray() as { id: number; kind: CorrectionKind; start_ts: number; end_ts: number }[]
+    ).map((r) => ({ id: r.id, kind: r.kind, start: r.start_ts, end: r.end_ts }));
   }
 
   // ---- reads -------------------------------------------------------------

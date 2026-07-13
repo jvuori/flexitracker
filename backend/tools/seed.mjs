@@ -61,21 +61,28 @@ async function main() {
   const laptop = await keyFor("Laptop", process.env.LAPTOP_KEY);
   const desktop = await keyFor("Desktop", process.env.DESKTOP_KEY ?? process.env.LAPTOP_KEY);
 
-  // Mon–Fri: mornings on the laptop with a short coffee gap (auto-bridged),
-  // afternoons on the desktop; Wed has a long midday gap (a meeting → reviewable);
-  // Thu evening has some extra work (out-of-hours, counted per burst).
-  for (let d = 0; d < 5; d++) {
-    await post(laptop, [
-      ...block(day(d, 8), day(d, 10)),
-      ...block(day(d, 10, 20), day(d, 12)), // 20-min coffee gap → bridged
-    ]);
-    if (d === 2) {
-      await post(desktop, block(day(d, 14, 30), day(d, 16, 30))); // gap 12:00–14:30 → reviewable
-    } else {
-      await post(desktop, block(day(d, 13), day(d, 16, 30)));
-    }
-  }
-  await post(laptop, block(day(3, 20), day(3, 21, 15))); // Thu evening extra
+  // A block on weekday `d`, from [h,m] to [h,m] — hours ≥ 24 roll into the next
+  // day, so a single effort can run past midnight (the calculation splits it at
+  // the day boundary into two periods).
+  const B = (d, s, e) => block(day(d, ...s), day(d, ...e));
+
+  // Natural start/stop variation — nobody clocks in at 08:00:00. Mornings on the
+  // laptop with a short coffee gap (auto-bridged), afternoons on the desktop.
+  // Mon: realistic day, coffee + lunch gaps bridged.
+  await post(laptop, [...B(0, [8, 6], [10, 9]), ...B(0, [10, 27], [12, 4])]);
+  await post(desktop, B(0, [12, 46], [16, 12]));
+  // Tue: early bird, plus an out-of-hours evening session (counted per burst).
+  await post(laptop, B(1, [7, 51], [12, 13]));
+  await post(desktop, [...B(1, [12, 49], [15, 34]), ...B(1, [19, 40], [21, 8])]);
+  // Wed: long midday meeting gap → reviewable (left uncorrected for the demo).
+  await post(laptop, B(2, [8, 17], [11, 52]));
+  await post(desktop, B(2, [14, 33], [16, 21]));
+  // Thu: normal day + a late session that runs past midnight into Fri.
+  await post(laptop, [...B(3, [8, 3], [10, 6]), ...B(3, [10, 24], [12, 1])]);
+  await post(desktop, [...B(3, [12, 44], [16, 8]), ...B(3, [22, 47], [24, 41])]); // → Fri 00:41
+  // Fri: shorter day + a late session running past midnight into Sat.
+  await post(laptop, B(4, [8, 23], [12, 12]));
+  await post(desktop, B(4, [23, 9], [25, 22])); // → Sat 01:22
 
   console.log(
     `seeded week of ${new Date(monday).toISOString().slice(0, 10)} at ${BASE}\n` +

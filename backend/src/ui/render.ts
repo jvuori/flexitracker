@@ -82,6 +82,8 @@ main{max-width:900px;margin:0 auto;padding:1rem}
 .seg.manual_added{background-color:var(--sensor);background-image:radial-gradient(rgba(255,255,255,.7) 1px,transparent 1.5px);background-size:5px 5px;background-position:center}
 .seg.review{background:repeating-linear-gradient(45deg,rgba(224,164,88,.22) 0 3px,transparent 3px 7px);border:1.5px solid var(--review)}
 .seg.removed{background:repeating-linear-gradient(45deg,rgba(139,149,166,.22) 0 3px,transparent 3px 7px);border:1.5px solid var(--excluded)}
+.seg.gap{background:rgba(127,135,150,.09)}
+.seg.sel{outline:2px solid var(--fg);outline-offset:0;z-index:3}
 .hours{position:relative;height:.85rem;margin-top:2px;font-size:.6rem;color:var(--muted)}
 .hours span{position:absolute;transform:translateX(-50%)}
 .hours span:first-child{transform:none}.hours span:last-child{transform:translateX(-100%)}
@@ -94,6 +96,26 @@ main{max-width:900px;margin:0 auto;padding:1rem}
 .swatch.manual_added{background-color:var(--sensor);background-image:radial-gradient(rgba(255,255,255,.7) 1px,transparent 1.4px);background-size:4px 4px;background-position:center}
 .swatch.review{background:repeating-linear-gradient(45deg,rgba(224,164,88,.25) 0 3px,transparent 3px 6px);border:1px solid var(--review)}
 .swatch.removed{background:repeating-linear-gradient(45deg,rgba(139,149,166,.25) 0 3px,transparent 3px 6px);border:1px solid var(--excluded)}
+.swatch.gap{background:rgba(127,135,150,.18);border:1px solid var(--line)}
+.pt{width:.7rem;height:.7rem;border-radius:2px;display:inline-block;flex:none;border:1px solid transparent}
+.pt.sensor{background:var(--sensor)}
+.pt.auto_bridged{background:var(--bridged)}
+.pt.manual_added{background-color:var(--sensor);background-image:radial-gradient(rgba(255,255,255,.7) 1px,transparent 1.4px);background-size:4px 4px;background-position:center}
+.pt.review{background:repeating-linear-gradient(45deg,rgba(224,164,88,.35) 0 3px,transparent 3px 6px);border-color:var(--review)}
+.pt.removed{background:repeating-linear-gradient(45deg,rgba(139,149,166,.35) 0 3px,transparent 3px 6px);border-color:var(--excluded)}
+.pt.gap{background:rgba(127,135,150,.18);border-color:var(--line)}
+.strip{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;min-height:2.1rem;margin:.2rem 0 .55rem;padding:.4rem .55rem;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+.strip .si{display:inline-flex;align-items:center;gap:.4rem;font-size:.85rem;font-variant-numeric:tabular-nums}
+.strip .act{margin-left:auto}
+.fillday{border-color:var(--sensor);color:var(--sensor)}
+.plist{display:flex;flex-direction:column;gap:2px;margin:.3rem 0}
+.prow{display:grid;grid-template-columns:.9rem 96px auto 1fr;gap:.5rem;align-items:center;text-align:left;
+ background:none;border:1px solid transparent;border-radius:6px;color:var(--fg);padding:.3rem .4rem;cursor:pointer;font-size:.8rem;font-variant-numeric:tabular-nums}
+.prow:hover{background:var(--panel)}
+.prow.sel{border-color:var(--fg);background:var(--panel)}
+.prow .pn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.adv{margin-top:.4rem}
+.adv summary{cursor:pointer;font-size:.85rem;padding:.2rem 0;color:var(--muted)}
 @media (max-width:640px){.summary{grid-template-columns:repeat(2,1fr)}
  .lane-head{grid-template-columns:1fr auto;grid-template-areas:"dl nums" "tl tl";row-gap:.45rem}
  .dl{grid-area:dl}.nums{grid-area:nums}.tl{grid-area:tl}}
@@ -136,6 +158,7 @@ const TABS={
 };
 
 let openDay=null;
+let selPeriod=null; // {dayStart, idx} — the currently selected period, if any.
 function dayFmt(ts){return new Intl.DateTimeFormat('en-GB',{timeZone:TZ,day:'2-digit',month:'short'}).format(ts);}
 function stat(k,v,cls){return '<div class="stat"><div class="k">'+k+'</div><div class="v'+(cls?' '+cls:'')+'">'+v+'</div></div>';}
 
@@ -162,16 +185,26 @@ function renderWeek(st,wk){
  document.getElementById('next').onclick=()=>{weekOffset++;openDay=null;TABS.week();};
 }
 
-// One day = one inline lane: label · full 0–24h timeline+ruler · numbers,
-// with an in-place expandable correction panel (no separate day route).
+// Human labels and the single state-appropriate verb for each period type.
+const TYPELABEL={sensor:'measured',auto_bridged:'auto-bridged',manual_added:'added by you',
+ review:'excluded (review)',removed:'excluded (removed)',gap:'idle / no activity'};
+function verbFor(t){
+ if(t==='sensor'||t==='auto_bridged')return{label:'Exclude as private',act:'exclude'};
+ if(t==='review'||t==='gap')return{label:'Count as work',act:'count'};
+ if(t==='manual_added')return{label:'Undo addition',act:'undo'};
+ if(t==='removed')return{label:'Restore as work',act:'restore'};
+ return null;
+}
+
+// One day = one inline lane: label · full 0–24h timeline+ruler · numbers, with
+// an in-place expandable panel. Every period of the day is a selectable object:
+// clicking the timeline selects the period under the pointer; a mirrored period
+// list offers the same selection; selecting reveals a contextual action strip.
 function dayLane(d,i,now){
  const DAY=86400000;
  const pct=ts=>Math.max(0,Math.min(100,((ts-d.dayStart)/DAY)*100));
- const seg=(s,e,cls)=>'<div class="seg '+cls+'" style="left:'+pct(s)+'%;width:'+(pct(e)-pct(s))+'%"></div>';
  let bars='';
- for(const g of d.reviewableGaps)bars+=seg(g.start,g.end,'review');
- for(const g of d.removedSpans)bars+=seg(g.start,g.end,'removed');
- for(const sp of d.spans)bars+=seg(sp.start,sp.end,sp.provenance);
+ d.periods.forEach((p,idx)=>{bars+='<div class="seg '+p.type+'" data-i="'+idx+'" style="left:'+pct(p.start)+'%;width:'+(pct(p.end)-pct(p.start))+'%"></div>';});
  let hrs='';for(let h=0;h<=24;h++)hrs+='<span style="left:'+(h/24*100)+'%">'+h+'</span>';
  const balCls=d.balanceMs>=0?'pos':'neg';
  const isToday=now>=d.dayStart&&now<d.dayStart+DAY;
@@ -182,45 +215,103 @@ function dayLane(d,i,now){
    '<div class="nums"><span class="worked">'+hm(round30(d.workedMs))+'</span>'+
      '<span class="bal '+balCls+'">'+(d.isWorkingDay?hm(d.balanceMs):'—')+'</span></div>'+
    '</div><div class="detail"></div></div>');
- buildDetail(lane.querySelector('.detail'),d);
- const toggle=()=>{openDay=lane.classList.toggle('open')?d.dayStart:null;};
- lane.querySelector('.tl').addEventListener('click',toggle);
- lane.querySelector('.dl').addEventListener('click',toggle);
+ buildDetail(lane,d);
+ const track=lane.querySelector('.track');
+ // Selecting a period: highlight its segment on the bar + its row in the list,
+ // and render the action strip. Resolving by index keeps tiny segments usable —
+ // a click anywhere on the track maps to the period covering that instant.
+ const select=idx=>{
+  selPeriod={dayStart:d.dayStart,idx};
+  for(const s of lane.querySelectorAll('.seg'))s.classList.toggle('sel',Number(s.dataset.i)===idx);
+  for(const r of lane.querySelectorAll('.prow'))r.classList.toggle('sel',Number(r.dataset.i)===idx);
+  renderStrip(lane.querySelector('.strip'),d,idx);
+ };
+ lane.__select=select;
+ lane.querySelector('.tl').addEventListener('click',e=>{
+  if(!lane.classList.contains('open')){lane.classList.add('open');openDay=d.dayStart;}
+  const r=track.getBoundingClientRect();const frac=(e.clientX-r.left)/r.width;
+  const ts=d.dayStart+Math.max(0,Math.min(0.999999,frac))*DAY;
+  const idx=d.periods.findIndex(p=>p.start<=ts&&p.end>ts);
+  select(idx<0?d.periods.length-1:idx);
+ });
+ lane.querySelector('.dl').addEventListener('click',()=>{openDay=lane.classList.toggle('open')?d.dayStart:null;});
+ // Re-apply a selection that survived a same-day reload.
+ if(selPeriod&&selPeriod.dayStart===d.dayStart&&selPeriod.idx<d.periods.length)select(selPeriod.idx);
  return lane;
 }
 
-// Editing controls for a day, rendered inside its lane's .detail panel.
-function buildDetail(c,d){
+// Apply the action for the selected period, then re-render the week.
+async function actOn(d,p){
+ const v=verbFor(p.type);if(!v)return;
+ if(v.act==='count')await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:p.start,end:p.end})});
+ else if(v.act==='exclude')await api('/corrections',{method:'POST',body:JSON.stringify({kind:'remove_work',start:p.start,end:p.end})});
+ else for(const id of (p.correctionIds||[]))await api('/corrections/'+id,{method:'DELETE'});
+ reload();
+}
+// Fill the office day: add work over each review/gap period inside the envelope,
+// leaving removed periods (explicit exclusions) untouched.
+async function fillDay(d){
+ const env=d.officeEnvelope;if(!env)return;
+ for(const p of d.periods){
+  if(p.type!=='review'&&p.type!=='gap')continue;
+  const s=Math.max(p.start,env.start),e=Math.min(p.end,env.end);
+  if(e>s)await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:s,end:e})});
+ }
+ reload();
+}
+
+// The expandable panel: summary, legend, contextual action strip, whole-day
+// fill, a mirrored selectable period list, and an advanced exact-times control.
+function buildDetail(lane,d){
+ const c=lane.querySelector('.detail');
  c.append(el('<div class="row"><span class="muted">gross '+hm(d.grossMs)+' · lunch −'+hm(d.lunchMs)+' · worked '+hm(d.workedMs)+'</span></div>'));
  c.append(el('<div class="legend"><span><i class="swatch" style="background:var(--sensor)"></i>measured</span>'+
    '<span><i class="swatch auto_bridged"></i>auto-bridged</span>'+
    '<span><i class="swatch manual_added"></i>added by you</span>'+
    '<span><i class="swatch review"></i>excluded (review)</span>'+
-   '<span><i class="swatch removed"></i>excluded (removed)</span></div>'));
- if(d.reviewableGaps.length===0 && d.removedSpans.length===0 && d.spans.length===0)c.append(el('<div class="muted">No activity.</div>'));
- for(const g of d.reviewableGaps){
-  const r=el('<div class="row"><span>Excluded '+clock(g.start)+'–'+clock(g.end)+' ('+hm(g.end-g.start)+') — auto</span>'+
-    '<button class="act">Include as work</button></div>');
-  r.querySelector('button').onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:g.start,end:g.end,note:'reviewed'})});reload();};
-  c.append(r);
+   '<span><i class="swatch removed"></i>excluded (removed)</span>'+
+   '<span><i class="swatch gap"></i>idle</span></div>'));
+ c.append(el('<div class="strip"></div>'));
+ if(d.officeEnvelope){
+  const b=el('<button class="act fillday">Mark whole day as work</button>');
+  b.onclick=()=>fillDay(d);
+  const row=el('<div class="row"></div>');row.append(b);c.append(row);
  }
- for(const g of d.removedSpans){
-  const r=el('<div class="row"><span>Removed '+clock(g.start)+'–'+clock(g.end)+' ('+hm(g.end-g.start)+') — marked private</span>'+
-    '<button class="act">Re-include as work</button></div>');
-  r.querySelector('button').onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:g.start,end:g.end,note:'re-included'})});reload();};
-  c.append(r);
- }
- const form=el('<div class="card"><b>Correct this day</b>'+
+ // Mirrored period list — the accessible / precision selection path.
+ const list=el('<div class="plist"></div>');
+ d.periods.forEach((p,idx)=>{
+  const row=el('<button class="prow" data-i="'+idx+'"><span class="pt '+p.type+'"></span>'+
+    '<span class="pr">'+clock(p.start)+'–'+clock(p.end)+'</span>'+
+    '<span class="pd muted">'+hm(p.end-p.start)+'</span>'+
+    '<span class="pn muted">'+TYPELABEL[p.type]+'</span></button>');
+  row.onclick=()=>lane.__select(idx);
+  list.append(row);
+ });
+ c.append(list);
+ // Advanced: exact times, for a boundary no existing period offers.
+ const adv=el('<details class="adv"><summary class="muted">Advanced: enter exact times</summary>'+
    '<div class="row"><label>From<input type="time" class="cs" value="12:00"></label>'+
    '<label>To<input type="time" class="ce" value="13:00"></label>'+
-   '<button class="act add">Add work</button><button class="act rm">Mark private</button></div></div>');
- c.append(form);
+   '<button class="act add">Add work</button><button class="act rm">Mark private</button></div></details>');
+ c.append(adv);
  const toTs=inp=>{const[h,m]=inp.value.split(':').map(Number);return d.dayStart+((h*60+m)*60000);};
- form.querySelector('.add').onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:toTs(form.querySelector('.cs')),end:toTs(form.querySelector('.ce'))})});reload();};
- form.querySelector('.rm').onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'remove_work',start:toTs(form.querySelector('.cs')),end:toTs(form.querySelector('.ce'))})});reload();};
+ adv.querySelector('.add').onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:toTs(adv.querySelector('.cs')),end:toTs(adv.querySelector('.ce'))})});reload();};
+ adv.querySelector('.rm').onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'remove_work',start:toTs(adv.querySelector('.cs')),end:toTs(adv.querySelector('.ce'))})});reload();};
+}
+
+// Render the contextual action strip for the selected period (or a hint).
+function renderStrip(strip,d,idx){
+ strip.innerHTML='';
+ const p=d.periods[idx];
+ if(!p){strip.append(el('<span class="muted">Tap a period on the timeline to edit it.</span>'));return;}
+ const v=verbFor(p.type);
+ strip.append(el('<span class="si"><span class="pt '+p.type+'"></span>'+clock(p.start)+'–'+clock(p.end)+
+   ' · '+hm(p.end-p.start)+' · '+TYPELABEL[p.type]+'</span>'));
+ if(v){const b=el('<button class="act">'+v.label+'</button>');b.onclick=()=>actOn(d,p);strip.append(b);}
 }
 // Re-fetch and re-render the week in place; dayLane reopens the expanded day.
-async function reload(){const [st,wk]=await Promise.all([api('/status'),api('/week?offset='+weekOffset)]);renderWeek(st,wk);}
+// Selection is dropped — the partition changes after any correction.
+async function reload(){selPeriod=null;const [st,wk]=await Promise.all([api('/status'),api('/week?offset='+weekOffset)]);renderWeek(st,wk);}
 
 function renderSettings(s){
  view.innerHTML='<h2>Settings</h2>';
