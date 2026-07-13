@@ -148,8 +148,8 @@ const DAYNAMES=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 async function api(path,opts){const r=await fetch('/api'+path,Object.assign({headers:{'content-type':'application/json'}},opts));
  if(!r.ok)throw new Error((await r.json().catch(()=>({error:r.statusText}))).error||r.statusText);
  return r.status===204?null:r.json();}
-function hm(ms){const neg=ms<0;ms=Math.abs(ms);const m=Math.round(ms/60000);const h=Math.floor(m/60);
- return (neg?'-':'')+h+'h '+String(m%60).padStart(2,'0')+'m';}
+function hm(ms){const neg=ms<0;ms=Math.abs(ms);const m=Math.round(ms/60000);const h=Math.floor(m/60);const mm=m%60;
+ return (neg?'-':'')+(h?h+'h '+String(mm).padStart(2,'0')+'m':mm+'m');}
 // Balance-only signed format: '+' for a surplus, '-' for a deficit, no sign for
 // zero. Durations keep unsigned hm(); balances use bal() so surplus/deficit read
 // at a glance.
