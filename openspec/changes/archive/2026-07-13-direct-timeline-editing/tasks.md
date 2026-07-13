@@ -26,7 +26,7 @@
 - [x] 4.1 Added engine unit tests (partition/split/envelope) and extended the API-level E2E smoke with partition-tiling, office-envelope, and correction-id assertions. (The smoke drives the JSON `/api` directly — not the DOM — and the existing `reviewableGaps`/`spans` assertions still hold since those fields are retained.)
 - [x] 4.2 Verified locally via the synthetic-activity generator + Playwright: select measured/bridged/gap/review/removed periods; count/exclude/undo/restore; fill a day; advanced exact-times — across 900px and 360px widths. Zero console errors.
 - [x] 4.3 Confirmed weekend/evening-only days expose no `officeEnvelope` (no fill button), the fill respects envelope bounds (morning/evening idle left unfilled), and `removed` periods are skipped by the fill (unit-tested exclusion preservation).
-- [ ] 4.4 Push to `main`; confirm QA auto-deploy + E2E pass before considering PROD (PROD stays manual-only). — **pending user go-ahead**
+- [x] 4.4 Pushed to `master` (commit `ddd0e1e`); Deploy QA run `29263094987` succeeded — deploy + live-QA E2E (fixtures + smoke) green. PROD stays manual-only, untouched.
 
 ## 5. Realistic test/demo data (user request)
 
