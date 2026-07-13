@@ -17,7 +17,8 @@ Today the week view and the day timeline are two separate screens: the week is a
 <!-- none -->
 
 ### Modified Capabilities
-- `web-ui`: The "Week view as default" and "Day timeline with edit mode" requirements change — the week view now renders each day's full 0–24h timeline inline with a time ruler and per-day numbers, and day editing happens by expanding the lane in place rather than navigating to a separate day view.
+- `web-ui`: The "Week view as default" and "Day timeline with edit mode" requirements change — the week view now renders each day's full 0–24h timeline inline with a time ruler and per-day numbers, day editing happens by expanding the lane in place rather than navigating to a separate day view, and manually-removed time is surfaced as a distinct "excluded" band with one-click re-inclusion.
+- `manual-corrections`: The "Correction precedence and provenance" requirement gains an explicit rule that an `add_work` overrides a `remove_work` on their overlapping span, so time the user re-includes counts again (as a manual addition) and is never permanently defeated by an earlier removal.
 
 ## Impact
 
