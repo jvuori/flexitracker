@@ -75,7 +75,7 @@ main{max-width:900px;margin:0 auto;padding:1rem}
  background-image:repeating-linear-gradient(90deg,var(--tick-strong) 0 1px,transparent 1px calc(100%/24)),
  repeating-linear-gradient(90deg,var(--tick) 0 1px,transparent 1px calc(100%/48)),
  repeating-linear-gradient(90deg,var(--tick-faint) 0 1px,transparent 1px calc(100%/96));
- background-size:100% 30px,100% 16px,100% 8px;background-position:left bottom;background-repeat:repeat-x}
+ background-size:100% 30px,100% 16px,100% 8px;background-position:left center;background-repeat:repeat-x}
 .seg{position:absolute;top:5px;height:14px;border-radius:3px;min-width:2px}
 .seg.sensor{background:var(--sensor)}
 .seg.auto_bridged{background:var(--bridged)}
