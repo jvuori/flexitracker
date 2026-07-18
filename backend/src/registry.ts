@@ -2,11 +2,24 @@
 // account_id — stored outside the per-tenant Durable Objects. Small and
 // queryable (also powers the admin console).
 
+/** Account lifecycle: register → admin approves → use; disable kicks out. */
+export type AccountStatus = "pending" | "active" | "rejected" | "disabled";
+
 export interface Account {
   account_id: string;
   google_sub: string;
   email: string;
   created_at: number;
+  status: AccountStatus;
+  requested_at: number | null;
+  note: string | null;
+  decided_at: number | null;
+  decided_by: string | null;
+}
+
+/** An account row plus its non-revoked machine-key count, for the admin console. */
+export interface AccountWithStats extends Account {
+  machine_count: number;
 }
 
 export interface KeyResolution {
@@ -25,10 +38,15 @@ export interface MachineKey {
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS account (
-  account_id TEXT PRIMARY KEY,
-  google_sub TEXT UNIQUE NOT NULL,
-  email      TEXT NOT NULL,
-  created_at INTEGER NOT NULL
+  account_id   TEXT PRIMARY KEY,
+  google_sub   TEXT UNIQUE NOT NULL,
+  email        TEXT NOT NULL,
+  created_at   INTEGER NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'pending',
+  requested_at INTEGER,
+  note         TEXT,
+  decided_at   INTEGER,
+  decided_by   TEXT
 );
 CREATE TABLE IF NOT EXISTS machine_key (
   access_key TEXT PRIMARY KEY,
@@ -82,6 +100,25 @@ export async function ensureRegistrySchema(db: D1Database): Promise<void> {
   for (const stmt of SCHEMA.split(";").map((s) => s.trim()).filter(Boolean)) {
     await db.prepare(stmt).run();
   }
+  await migrateAccountStatus(db);
+}
+
+/**
+ * Add the account-lifecycle columns to a pre-existing `account` table (SQLite has
+ * no ADD COLUMN IF NOT EXISTS). Runs once: when `status` is missing we add the
+ * columns and **grandfather every existing row to `active`** — those accounts
+ * predate approval and must not lock themselves out. Fresh DBs already have the
+ * columns (with default `pending`), so this is a no-op there.
+ */
+async function migrateAccountStatus(db: D1Database): Promise<void> {
+  const cols = await db.prepare("PRAGMA table_info(account)").all<{ name: string }>();
+  if (cols.results.some((c) => c.name === "status")) return;
+  await db.prepare("ALTER TABLE account ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'").run();
+  await db.prepare("ALTER TABLE account ADD COLUMN requested_at INTEGER").run();
+  await db.prepare("ALTER TABLE account ADD COLUMN note TEXT").run();
+  await db.prepare("ALTER TABLE account ADD COLUMN decided_at INTEGER").run();
+  await db.prepare("ALTER TABLE account ADD COLUMN decided_by TEXT").run();
+  await db.prepare("UPDATE account SET status = 'active' WHERE status = 'pending'").run();
 }
 
 /** URL-safe random token. */
@@ -103,30 +140,162 @@ export async function getOrCreateAccount(
   db: D1Database,
   sub: string,
   email: string,
+  isAdmin = false,
 ): Promise<Account> {
   const existing = await db
     .prepare("SELECT * FROM account WHERE account_id = ?")
     .bind(sub)
     .first<Account>();
-  if (existing) return existing;
+  if (existing) {
+    // Repair: an admin (allowlist) is always active, even if an earlier login
+    // created a pending row before the email was on the allowlist.
+    if (isAdmin && existing.status !== "active") {
+      await db
+        .prepare("UPDATE account SET status = 'active' WHERE account_id = ?")
+        .bind(sub)
+        .run();
+      existing.status = "active";
+    }
+    return existing;
+  }
 
-  const account: Account = { account_id: sub, google_sub: sub, email, created_at: Date.now() };
-  await ensureAccountRow(db, sub, email);
-  return account;
+  // New account: admins bootstrap themselves active; everyone else is pending
+  // until an admin approves (no capability meanwhile).
+  const status: AccountStatus = isAdmin ? "active" : "pending";
+  const now = Date.now();
+  await db
+    .prepare(
+      "INSERT OR IGNORE INTO account (account_id, google_sub, email, created_at, status) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(sub, sub, email, now, status)
+    .run();
+  return {
+    account_id: sub,
+    google_sub: sub,
+    email,
+    created_at: now,
+    status,
+    requested_at: null,
+    note: null,
+    decided_at: null,
+    decided_by: null,
+  };
 }
 
-/** Idempotently ensure an account row with a fixed id exists. */
+/** Read an account row (for the capability gate), or null if unknown. */
+export async function getAccount(db: D1Database, accountId: string): Promise<Account | null> {
+  const row = await db
+    .prepare("SELECT * FROM account WHERE account_id = ?")
+    .bind(accountId)
+    .first<Account>();
+  return row ?? null;
+}
+
+/**
+ * Idempotently ensure an account row with a fixed id exists. Used by the QA
+ * bootstrap and fixtures, so it creates **active** — the lab account must be
+ * immediately usable without an approval step.
+ */
 export async function ensureAccountRow(
   db: D1Database,
   accountId: string,
   email: string,
+  status: AccountStatus = "active",
 ): Promise<void> {
   await db
     .prepare(
-      "INSERT OR IGNORE INTO account (account_id, google_sub, email, created_at) VALUES (?, ?, ?, ?)",
+      "INSERT OR IGNORE INTO account (account_id, google_sub, email, created_at, status) VALUES (?, ?, ?, ?, ?)",
     )
-    .bind(accountId, accountId, email, Date.now())
+    .bind(accountId, accountId, email, Date.now(), status)
     .run();
+}
+
+/** Record a pending account's access request (idempotent; keeps first note). */
+export async function setRequested(
+  db: D1Database,
+  accountId: string,
+  note: string | null,
+): Promise<void> {
+  await db
+    .prepare(
+      "UPDATE account SET requested_at = COALESCE(requested_at, ?), note = COALESCE(note, ?) WHERE account_id = ?",
+    )
+    .bind(Date.now(), note, accountId)
+    .run();
+}
+
+/** Approve (or re-enable) an account → active. */
+export async function approve(
+  db: D1Database,
+  accountId: string,
+  adminEmail: string,
+): Promise<void> {
+  await db
+    .prepare("UPDATE account SET status = 'active', decided_at = ?, decided_by = ? WHERE account_id = ?")
+    .bind(Date.now(), adminEmail, accountId)
+    .run();
+}
+
+/** Reject a pending registration → rejected. */
+export async function reject(
+  db: D1Database,
+  accountId: string,
+  adminEmail: string,
+): Promise<void> {
+  await db
+    .prepare("UPDATE account SET status = 'rejected', decided_at = ?, decided_by = ? WHERE account_id = ?")
+    .bind(Date.now(), adminEmail, accountId)
+    .run();
+}
+
+/**
+ * Kick out an account → disabled, revoking all its machine keys in the same
+ * batch so its daemons stop being accepted at /ingest immediately, not just the
+ * human UI.
+ */
+export async function disable(
+  db: D1Database,
+  accountId: string,
+  adminEmail: string,
+): Promise<void> {
+  const now = Date.now();
+  await db.batch([
+    db
+      .prepare("UPDATE account SET status = 'disabled', decided_at = ?, decided_by = ? WHERE account_id = ?")
+      .bind(now, adminEmail, accountId),
+    db
+      .prepare("UPDATE machine_key SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL")
+      .bind(now, accountId),
+  ]);
+}
+
+/**
+ * The admin approval queue: pending accounts that have **explicitly requested**
+ * access (requested_at set), oldest first. A visitor who merely signed in but
+ * never submitted the request form is not in the queue (they still show in the
+ * users overview) — registration is an explicit act.
+ */
+export async function listRegistrations(db: D1Database): Promise<Account[]> {
+  const res = await db
+    .prepare(
+      "SELECT * FROM account WHERE status = 'pending' AND requested_at IS NOT NULL ORDER BY requested_at ASC",
+    )
+    .all<Account>();
+  return res.results;
+}
+
+/** All accounts with their non-revoked machine-key count, for the admin console. */
+export async function listAccountsWithStats(db: D1Database): Promise<AccountWithStats[]> {
+  const res = await db
+    .prepare(
+      `SELECT a.*, COUNT(k.access_key) AS machine_count
+         FROM account a
+         LEFT JOIN machine_key k ON k.account_id = a.account_id AND k.revoked_at IS NULL
+        GROUP BY a.account_id
+        ORDER BY a.created_at DESC`,
+    )
+    .all<AccountWithStats>();
+  return res.results;
 }
 
 /** Return an existing non-revoked key for (account,label) or issue a new one. */

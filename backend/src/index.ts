@@ -2,21 +2,30 @@ import { Hono } from "hono";
 import type { Env } from "./env";
 import { parseEventBatch } from "./schema";
 import {
+  approve,
+  disable,
   ensureAccountRow,
   ensureKey,
   ensureRegistrySchema,
+  getAccount,
   getOrCreateAccount,
   issueKey,
   listAccounts,
+  listAccountsWithStats,
   listAudit,
   listKeys,
+  listRegistrations,
   recordAudit,
+  reject,
   resolveKey,
   revokeKey,
+  setRequested,
   wipeRegistry,
+  type AccountStatus,
 } from "./registry";
 import { isAdmin, requireIdentity, UnauthorizedError, type Identity } from "./identity";
 import type { Settings } from "./worktime/settings";
+import { notifyAdmin } from "./mail";
 import { renderApp } from "./ui/render";
 
 export { TenantDO } from "./tenant-do";
@@ -39,12 +48,20 @@ const FIXTURE_ACCOUNT_ID = "qa-fixtures";
 /** Resolve a human identity to its account id, with the QA fixtures override. */
 async function accountFor(env: Env, identity: Identity): Promise<string> {
   if (env.QA_TEST_MODE === "1" && env.QA_FIXTURE_EMAIL && identity.email === env.QA_FIXTURE_EMAIL) {
+    // The fixtures/lab account is always active — it must be immediately usable
+    // (locally and in QA) without a bootstrap or an approval step.
+    await ensureAccountRow(env.REGISTRY, FIXTURE_ACCOUNT_ID, identity.email, "active");
     return FIXTURE_ACCOUNT_ID;
   }
-  return (await getOrCreateAccount(env.REGISTRY, identity.sub, identity.email)).account_id;
+  // Admins (allowlist) are provisioned active; everyone else starts pending.
+  return (await getOrCreateAccount(env.REGISTRY, identity.sub, identity.email, isAdmin(identity, env)))
+    .account_id;
 }
 
-const app = new Hono<{ Bindings: Env; Variables: { identity: Identity; accountId: string } }>();
+const app = new Hono<{
+  Bindings: Env;
+  Variables: { identity: Identity; accountId: string; status: AccountStatus };
+}>();
 
 app.get("/health", (c) => c.json({ ok: true, service: "flexi-worker-cloud" }));
 
@@ -82,7 +99,10 @@ app.get("/config", async (c) => {
 });
 
 // ---- authenticated user API --------------------------------------------
-const api = new Hono<{ Bindings: Env; Variables: { identity: Identity; accountId: string } }>();
+const api = new Hono<{
+  Bindings: Env;
+  Variables: { identity: Identity; accountId: string; status: AccountStatus };
+}>();
 
 api.use("*", async (c, next) => {
   await ready(c.env);
@@ -94,8 +114,40 @@ api.use("*", async (c, next) => {
     throw e;
   }
   c.set("identity", identity);
-  c.set("accountId", await accountFor(c.env, identity));
+  const accountId = await accountFor(c.env, identity);
+  c.set("accountId", accountId);
+  // Capability gate: nothing but the self-view and a pending user's own
+  // registration is reachable until an admin has approved the account.
+  const status = (await getAccount(c.env.REGISTRY, accountId))?.status ?? "pending";
+  c.set("status", status);
+  if (status !== "active") {
+    const path = c.req.path;
+    const selfView = c.req.method === "GET" && path === "/api/me";
+    const register = c.req.method === "POST" && path === "/api/register" && status === "pending";
+    if (!selfView && !register) return c.json({ error: "account not active", status }, 403);
+  }
   await next();
+});
+
+// Self-view: readable in any status so the UI can render the right screen.
+api.get("/me", async (c) => {
+  const acct = await getAccount(c.env.REGISTRY, c.get("accountId"));
+  return c.json({
+    email: c.get("identity").email,
+    accountId: c.get("accountId"),
+    admin: isAdmin(c.get("identity"), c.env),
+    status: c.get("status"),
+    requested: !!acct?.requested_at,
+    note: acct?.note ?? null,
+  });
+});
+
+// A pending user asks for access (idempotent); best-effort notifies the admin.
+api.post("/register", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { note?: string };
+  await setRequested(c.env.REGISTRY, c.get("accountId"), body.note?.slice(0, 500) ?? null);
+  await notifyAdmin(c.env, c.get("identity").email, body.note ?? null);
+  return c.json({ ok: true, status: "pending" });
 });
 
 api.get("/status", async (c) => c.json(await tenant(c.env, c.get("accountId")).getStatus()));
@@ -152,6 +204,9 @@ api.get("/machines", async (c) => {
 });
 
 api.post("/machines", async (c) => {
+  // Secondary guard: key issuance requires an active account even if a future
+  // route were mounted outside the gate above.
+  if (c.get("status") !== "active") return c.json({ error: "account not active" }, 403);
   const body = (await c.req.json().catch(() => ({}))) as { label?: string };
   const key = await issueKey(c.env.REGISTRY, c.get("accountId"), body.label ?? null);
   return c.json(key);
@@ -168,6 +223,37 @@ api.use("/admin/*", async (c, next) => {
   await next();
 });
 api.get("/admin/accounts", async (c) => c.json(await listAccounts(c.env.REGISTRY)));
+
+// Registration approval queue.
+api.get("/admin/registrations", async (c) => c.json(await listRegistrations(c.env.REGISTRY)));
+api.post("/admin/registrations/:id/approve", async (c) => {
+  const id = c.req.param("id");
+  await approve(c.env.REGISTRY, id, c.get("identity").email);
+  await recordAudit(c.env.REGISTRY, c.get("identity").email, "approve_account", id);
+  return c.json({ ok: true });
+});
+api.post("/admin/registrations/:id/reject", async (c) => {
+  const id = c.req.param("id");
+  await reject(c.env.REGISTRY, id, c.get("identity").email);
+  await recordAudit(c.env.REGISTRY, c.get("identity").email, "reject_account", id);
+  return c.json({ ok: true });
+});
+
+// Users overview (status + machine count) and kick-out / re-enable.
+api.get("/admin/users", async (c) => c.json(await listAccountsWithStats(c.env.REGISTRY)));
+api.post("/admin/users/:id/disable", async (c) => {
+  const id = c.req.param("id");
+  await disable(c.env.REGISTRY, id, c.get("identity").email);
+  await recordAudit(c.env.REGISTRY, c.get("identity").email, "disable_account", id);
+  return c.json({ ok: true });
+});
+api.post("/admin/users/:id/enable", async (c) => {
+  const id = c.req.param("id");
+  await approve(c.env.REGISTRY, id, c.get("identity").email);
+  await recordAudit(c.env.REGISTRY, c.get("identity").email, "enable_account", id);
+  return c.json({ ok: true });
+});
+
 api.get("/admin/accounts/:id/keys", async (c) =>
   c.json(await listKeys(c.env.REGISTRY, c.req.param("id"))),
 );
@@ -197,6 +283,27 @@ app.post("/test/bootstrap", async (c) => {
     keys.push((await ensureKey(c.env.REGISTRY, FIXTURE_ACCOUNT_ID, label)).access_key);
   }
   return c.json({ accountId: FIXTURE_ACCOUNT_ID, keys });
+});
+
+// QA-only account approval/disable so the E2E suite can drive the register →
+// approve → use → kick-out lifecycle without a human admin (the smoke's Access
+// service-token identity is not on the admin allowlist). Gated by QA_TEST_MODE
+// ⇒ absent in PROD, so it can never touch prod accounts.
+app.post("/test/approve", async (c) => {
+  if (c.env.QA_TEST_MODE !== "1") return c.json({ error: "not found" }, 404);
+  await ready(c.env);
+  const body = (await c.req.json().catch(() => ({}))) as { accountId?: string };
+  if (!body.accountId) return c.json({ error: "accountId required" }, 400);
+  await approve(c.env.REGISTRY, body.accountId, "qa-test");
+  return c.json({ ok: true });
+});
+app.post("/test/disable", async (c) => {
+  if (c.env.QA_TEST_MODE !== "1") return c.json({ error: "not found" }, 404);
+  await ready(c.env);
+  const body = (await c.req.json().catch(() => ({}))) as { accountId?: string };
+  if (!body.accountId) return c.json({ error: "accountId required" }, 400);
+  await disable(c.env.REGISTRY, body.accountId, "qa-test");
+  return c.json({ ok: true });
 });
 
 // ---- QA-only test surface (wipe/load/validate fixtures) ----------------
@@ -246,7 +353,13 @@ app.get("/", async (c) => {
   try {
     const identity = await requireIdentity(c.req.raw, c.env);
     const accountId = await accountFor(c.env, identity);
-    return c.html(renderApp(identity, isAdmin(identity, c.env), accountId));
+    const acct = await getAccount(c.env.REGISTRY, accountId);
+    return c.html(
+      renderApp(identity, isAdmin(identity, c.env), accountId, {
+        status: acct?.status ?? "pending",
+        requested: !!acct?.requested_at,
+      }),
+    );
   } catch (e) {
     if (e instanceof UnauthorizedError) return c.text("Sign in required.", 401);
     throw e;

@@ -20,4 +20,13 @@ export interface Env {
   /** In QA, a login with this email is mapped to the fixtures account so the
    *  seeded scenarios are browsable. Never set in PROD. */
   QA_FIXTURE_EMAIL?: string;
+
+  /** Optional Cloudflare Email Routing `send_email` binding for best-effort admin
+   *  notifications on new access requests. Absent ⇒ notifications live only in
+   *  the in-app registrations queue (see mail.ts). */
+  SEND_EMAIL?: { send(message: unknown): Promise<void> };
+  /** Verified destination address that admin notifications are sent to. */
+  ADMIN_NOTIFY_ADDRESS?: string;
+  /** From-address for admin notifications (defaults to ADMIN_NOTIFY_ADDRESS). */
+  ADMIN_NOTIFY_FROM?: string;
 }

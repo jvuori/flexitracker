@@ -40,6 +40,23 @@ const at = (h) => monday + h * H;
 async function run() {
   check("health", (await (await fetch(BASE + "/health")).json()).ok);
 
+  // --- registration gate: a fresh identity starts pending and cannot mint a key
+  // until an admin approves. The QA smoke's Access service token is not on the
+  // admin allowlist, so we approve via the QA-only /test/approve (QA_TEST_MODE).
+  const me0 = await j("/api/me");
+  check("new identity is pending", me0.status === "pending", `status ${me0.status}`);
+  const blocked = await fetch(BASE + "/api/machines", {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify({ label: "smoke" }),
+  });
+  check("pending cannot mint a key (403)", blocked.status === 403, `got ${blocked.status}`);
+  await j("/api/register", { method: "POST", body: JSON.stringify({ note: "e2e smoke" }) });
+  const meReq = await j("/api/me");
+  check("register recorded", meReq.requested === true);
+  await j("/test/approve", { method: "POST", body: JSON.stringify({ accountId: me0.accountId }) });
+  check("approved → active", (await j("/api/me")).status === "active");
+
   const key = await j("/api/machines", { method: "POST", body: JSON.stringify({ label: "smoke" }) });
   check("issued access key", typeof key.access_key === "string" && !!key.machine_id);
 
@@ -144,6 +161,16 @@ async function run() {
     }
   }
 
+  // Admin bootstrap (local only): an ADMIN_EMAILS identity (non-fixture, so it
+  // exercises the getOrCreateAccount admin-active path) is active with no
+  // approval step. (On QA the smoke uses a non-admin service token.)
+  if (!process.env.CF_ACCESS_CLIENT_ID) {
+    const meAdmin = await (
+      await fetch(BASE + "/api/me", { headers: { "x-dev-identity": "jaakko.vuori@gmail.com" } })
+    ).json();
+    check("admin identity is auto-active", meAdmin.status === "active" && meAdmin.admin === true);
+  }
+
   // Seal path (dev only): a fully-past day → maintenance materializes rollup+sessions.
   if (!process.env.CF_ACCESS_CLIENT_ID) {
     const past = monday - 14 * 86400_000 + 9 * H;
@@ -161,6 +188,26 @@ async function run() {
     const maint = await j("/api/dev/maintenance", { method: "POST" });
     check("maintenance sealed a rollup", maint.rollups >= 1, JSON.stringify(maint));
     check("maintenance wrote sessions", maint.sessions >= 1);
+  }
+
+  // Kick-out (runs last: disabling revokes ALL the account's keys). The key that
+  // worked a moment ago must stop being accepted at /ingest once disabled.
+  {
+    const before = await fetch(BASE + "/ingest", {
+      method: "POST",
+      headers: { authorization: `Bearer ${key.access_key}`, "content-type": "application/json" },
+      body: JSON.stringify({ batch_seq: 20, events: [{ ts: at(20), kind: "active" }] }),
+    });
+    check("key ingests while active", before.ok, `got ${before.status}`);
+    await j("/test/disable", { method: "POST", body: JSON.stringify({ accountId: me0.accountId }) });
+    const after = await fetch(BASE + "/ingest", {
+      method: "POST",
+      headers: { authorization: `Bearer ${key.access_key}`, "content-type": "application/json" },
+      body: JSON.stringify({ batch_seq: 21, events: [{ ts: at(21), kind: "active" }] }),
+    });
+    check("disabled account's key is rejected (401)", after.status === 401, `got ${after.status}`);
+    // Re-enable so the (persistent QA) account is left usable for the next run.
+    await j("/test/approve", { method: "POST", body: JSON.stringify({ accountId: me0.accountId }) });
   }
 
   console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);

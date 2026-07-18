@@ -44,6 +44,12 @@ ACCESS_AUD = "75ada7e725c5e2c16fe2cc0a46f3632ff58b57587fbd2e477d137d095b4408b5"
 # QA-only test surface. Deliberately absent from [env.prod.vars] (PROD firewall).
 QA_TEST_MODE = "1"
 QA_FIXTURE_EMAIL = "jaakko.vuori@gmail.com"
+# Best-effort admin notification on new access requests (Option B — native, free,
+# no ESP, no email to end users). Enable by ONE-TIME bootstrap: set up Cloudflare
+# Email Routing on a domain, verify the destination address, then uncomment the
+# [[env.qa.send_email]] binding below and set ADMIN_NOTIFY_ADDRESS. Until then,
+# notifications live only in the in-app registrations queue.
+# ADMIN_NOTIFY_ADDRESS = "jaakko.vuori@gmail.com"
 
 [[env.qa.durable_objects.bindings]]
 name = "TENANT"
@@ -69,6 +75,9 @@ ACCESS_TEAM_DOMAIN = "flexi-worker-team.cloudflareaccess.com"
 # PROD gets its OWN Access application → its OWN AUD. Fill this in when you
 # create the prod Access app for flexi-worker-cloud-prod.<sub>.workers.dev.
 ACCESS_AUD = "REPLACE_WITH_PROD_AUD"
+# Admin notification on new access requests — enable after the one-time Email
+# Routing bootstrap (see the QA note above), then uncomment [[env.prod.send_email]].
+# ADMIN_NOTIFY_ADDRESS = "jaakko.vuori@gmail.com"
 
 [[env.prod.durable_objects.bindings]]
 name = "TENANT"

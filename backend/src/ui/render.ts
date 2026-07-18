@@ -5,8 +5,19 @@ import type { Identity } from "../identity";
  * light/dark) and a vanilla-JS client that drives the JSON API. Served by the
  * Worker behind Cloudflare Access (dev mode stubs identity server-side).
  */
-export function renderApp(identity: Identity, admin: boolean, accountId: string): string {
-  const data = JSON.stringify({ email: identity.email, admin, accountId });
+export function renderApp(
+  identity: Identity,
+  admin: boolean,
+  accountId: string,
+  gate: { status: string; requested: boolean },
+): string {
+  const data = JSON.stringify({
+    email: identity.email,
+    admin,
+    accountId,
+    status: gate.status,
+    requested: gate.requested,
+  });
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -139,6 +150,15 @@ label{display:block;margin:.4rem 0 .15rem;font-size:.85rem}
 .wd{display:inline-flex;align-items:center;gap:.3rem;margin:0;font-size:.85rem;padding:.3rem .55rem;border:1px solid var(--line);border-radius:6px;cursor:pointer;user-select:none}
 code{background:rgba(127,127,127,.15);padding:.15rem .35rem;border-radius:4px;word-break:break-all}
 table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:.35rem;border-bottom:1px solid var(--line);font-size:.85rem}
+.gate{max-width:520px;margin:2.5rem auto;text-align:center}
+.gate h2{margin:.2rem 0 .5rem}
+.gate p{color:var(--muted);line-height:1.5}
+.gate textarea{width:100%;min-height:4.5rem;margin:.6rem 0;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:.5rem;font-family:inherit}
+.gate .act{padding:.5rem 1rem}
+.badge{display:inline-block;padding:0 .4rem;font-size:.7rem;border-radius:4px;border:1px solid var(--line2);color:var(--muted);vertical-align:middle}
+.badge.active{color:var(--bg);background:var(--pos);border-color:var(--pos)}
+.badge.pending{color:var(--bg);background:var(--review);border-color:var(--review)}
+.badge.rejected,.badge.disabled{color:var(--bg);background:var(--neg);border-color:var(--neg)}
 `;
 
 // The client is defined as a plain string so the page stays node-free.
@@ -146,7 +166,6 @@ const CLIENT = String.raw`
 const S=window.__FLEXI__;
 const view=document.getElementById('view');
 document.getElementById('who').textContent=S.email;
-if(S.admin){for(const el of document.querySelectorAll('.admin-only')){el.hidden=false;}}
 let TZ='UTC';
 const DAYNAMES=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 
@@ -173,7 +192,7 @@ const TABS={
   TZ=s.timezone;renderWeek(st,wk);},
  async settings(){renderSettings(await api('/settings'));},
  async machines(){renderMachines(await api('/machines'));},
- async admin(){renderAdmin(await api('/admin/accounts'));},
+ async admin(){renderAdmin();},
 };
 
 let openDay=null;
@@ -422,18 +441,51 @@ function renderMachines(m){
  view.append(t);
 }
 
-async function renderAdmin(accts){
- view.innerHTML='<h2>Admin · registered accounts</h2>';
- const t=el('<table><tr><th>Email</th><th>Account</th><th>Created</th><th></th></tr></table>');
- for(const a of accts){
-  const tr=el('<tr><td>'+a.email+'</td><td class="muted">'+a.account_id.slice(0,8)+'</td><td class="muted">'+new Date(a.created_at).toLocaleDateString()+'</td><td></td></tr>');
-  const b=el('<button class="act">Keys</button>');
-  b.onclick=()=>renderAdminKeys(a);
-  tr.lastChild.append(b);
+async function renderAdmin(){
+ view.innerHTML='<h2>Admin</h2>';
+ const [regs,users,audit]=await Promise.all([api('/admin/registrations'),api('/admin/users'),api('/admin/audit')]);
+
+ // Pending registration requests: approve or reject.
+ view.append(el('<h3>Access requests'+(regs.length?' ('+regs.length+')':'')+'</h3>'));
+ if(!regs.length)view.append(el('<p class="muted">No pending requests.</p>'));
+ else{
+  const rt=el('<table><tr><th>Email</th><th>Requested</th><th>Note</th><th></th></tr></table>');
+  for(const a of regs){
+   const when=a.requested_at?new Date(a.requested_at).toLocaleString():'—';
+   const tr=el('<tr><td>'+a.email+'</td><td class="muted">'+when+'</td><td class="muted">'+(a.note||'')+'</td><td></td></tr>');
+   const ap=el('<button class="act">Approve</button>');
+   ap.onclick=async()=>{await api('/admin/registrations/'+a.account_id+'/approve',{method:'POST'});renderAdmin();};
+   const rj=el('<button class="act" style="margin-left:.35rem">Reject</button>');
+   rj.onclick=async()=>{if(confirm('Reject '+a.email+'?')){await api('/admin/registrations/'+a.account_id+'/reject',{method:'POST'});renderAdmin();}};
+   tr.lastChild.append(ap);tr.lastChild.append(rj);
+   rt.append(tr);
+  }
+  view.append(rt);
+ }
+
+ // All users with status + machine count; kick-out / re-enable, and key drilldown.
+ view.append(el('<h3>Users</h3>'));
+ const t=el('<table><tr><th>Email</th><th>Status</th><th>Machines</th><th>Created</th><th></th></tr></table>');
+ for(const a of users){
+  const tr=el('<tr><td>'+a.email+'</td><td><span class="badge '+a.status+'">'+a.status+'</span></td>'+
+    '<td class="muted">'+a.machine_count+'</td>'+
+    '<td class="muted">'+new Date(a.created_at).toLocaleDateString()+'</td><td></td></tr>');
+  const cell=tr.lastChild;
+  const keysb=el('<button class="act">Keys</button>');keysb.onclick=()=>renderAdminKeys(a);cell.append(keysb);
+  const isSelf=a.account_id===S.accountId;
+  if(a.status==='active'&&!isSelf){
+   const d=el('<button class="act" style="margin-left:.35rem">Disable</button>');
+   d.onclick=async()=>{if(confirm('Disable '+a.email+'? This revokes all their machine keys.')){await api('/admin/users/'+a.account_id+'/disable',{method:'POST'});renderAdmin();}};
+   cell.append(d);
+  } else if(a.status==='disabled'||a.status==='rejected'){
+   const e2=el('<button class="act" style="margin-left:.35rem">Enable</button>');
+   e2.onclick=async()=>{await api('/admin/users/'+a.account_id+'/enable',{method:'POST'});renderAdmin();};
+   cell.append(e2);
+  }
   t.append(tr);
  }
  view.append(t);
- const audit=await api('/admin/audit');
+
  if(audit.length){
   view.append(el('<h3>Audit log</h3>'));
   const at=el('<table><tr><th>When</th><th>Admin</th><th>Action</th><th>Target</th></tr></table>');
@@ -456,5 +508,43 @@ async function renderAdminKeys(a){
  document.getElementById('back').onclick=()=>TABS.admin();
 }
 
-TABS.week();
+// ---- registration gate: shown until an admin has approved the account -------
+function gateCard(title,bodyHtml){
+ view.innerHTML='';
+ const c=el('<div class="gate card"><h2>'+title+'</h2>'+bodyHtml+'</div>');
+ view.append(c);return c;
+}
+function renderWaiting(){
+ gateCard('Waiting for approval',
+  '<p>Thanks, '+S.email+'. Your request to use FlexiWorker has been received and is '+
+  'awaiting an administrator\'s review. You\'ll be able to sign in to the full app '+
+  'once it is approved — check back later.</p>');
+}
+function renderGate(){
+ // nav has display:flex, which beats the [hidden] attribute — hide it outright.
+ document.getElementById('tabs').style.display='none';
+ if(S.status==='pending'&&!S.requested){
+  const c=gateCard('Request access',
+   '<p>Welcome, '+S.email+'. FlexiWorker is invitation-only: request access below and '+
+   'an administrator will review it before you can start.</p>'+
+   '<textarea id="note" placeholder="Optional: a note for the admin (who you are / why)"></textarea>'+
+   '<button class="act" id="req">Request access</button>');
+  c.querySelector('#req').onclick=async()=>{
+   const note=c.querySelector('#note').value||null;
+   c.querySelector('#req').disabled=true;
+   await api('/register',{method:'POST',body:JSON.stringify({note:note})});
+   S.requested=true;renderWaiting();
+  };
+ } else if(S.status==='pending'){renderWaiting();}
+ else if(S.status==='rejected'){gateCard('Access declined','<p>Your access request was not approved. If you believe this is a mistake, contact the administrator.</p>');}
+ else if(S.status==='disabled'){gateCard('Account disabled','<p>Your FlexiWorker account has been disabled. Contact the administrator if you need it restored.</p>');}
+ else {renderWaiting();}
+}
+
+function init(){
+ if(S.status!=='active'){renderGate();return;}
+ if(S.admin){for(const el of document.querySelectorAll('.admin-only')){el.hidden=false;}}
+ TABS.week();
+}
+init();
 `;
