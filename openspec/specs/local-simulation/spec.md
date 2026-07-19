@@ -1,7 +1,7 @@
 # local-simulation Specification
 
 ## Purpose
-TBD - created by archiving change flexi-worker-cloud. Update Purpose after archive.
+TBD - created by archiving change flexitracker. Update Purpose after archive.
 ## Requirements
 ### Requirement: Full stack runs locally without cloud
 The entire backend (Worker, per-account Durable Object with SQLite, and the static UI) SHALL run locally via the Cloudflare local runtime with persisted local storage, requiring no deployed cloud resources and incurring no cloud cost.

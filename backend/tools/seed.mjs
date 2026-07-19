@@ -7,7 +7,7 @@
 //
 // QA/PROD (Access protects /api, so mint keys in the browser — Machines → Add
 // machine — and pass them in; /ingest must be bypassed in Access):
-//   BASE=https://flexi-worker-cloud-qa.jaakko-vuori.workers.dev \
+//   BASE=https://flexitracker-qa.jaakko-vuori.workers.dev \
 //   LAPTOP_KEY=xxxx DESKTOP_KEY=yyyy node tools/seed.mjs
 
 const BASE = process.env.BASE ?? "http://localhost:8789";

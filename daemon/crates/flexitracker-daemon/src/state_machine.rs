@@ -9,7 +9,7 @@
 //!
 //! Pure: `step` takes an observation and returns events, with no I/O.
 
-use flexi_core::{ActivityEvent, EventKind};
+use flexitracker_core::{ActivityEvent, EventKind};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

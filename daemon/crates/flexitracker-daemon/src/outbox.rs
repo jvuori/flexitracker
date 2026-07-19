@@ -2,7 +2,7 @@
 //! offline; the whole queue is flushed on reconnect, and a monotonic `batch_seq`
 //! lets the backend deduplicate re-sent batches (activity-daemon spec).
 
-use flexi_core::{ActivityEvent, EventBatch, MachineDescriptor};
+use flexitracker_core::{ActivityEvent, EventBatch, MachineDescriptor};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -79,7 +79,7 @@ impl Outbox {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flexi_core::EventKind;
+    use flexitracker_core::EventKind;
 
     fn tmp() -> PathBuf {
         let mut p = std::env::temp_dir();

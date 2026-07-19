@@ -1,7 +1,7 @@
 # tenant-storage Specification
 
 ## Purpose
-TBD - created by archiving change flexi-worker-cloud. Update Purpose after archive.
+TBD - created by archiving change flexitracker. Update Purpose after archive.
 ## Requirements
 ### Requirement: One SQLite database per account
 Each account SHALL be stored in its own Durable Object with embedded SQLite, addressed deterministically by the stable internal `account_id`. Tenant data SHALL NOT be commingled in a shared table.

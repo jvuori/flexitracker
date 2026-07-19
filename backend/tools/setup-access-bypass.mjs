@@ -4,12 +4,12 @@
 //
 // Needs an API token with **Account → Access: Apps and Policies → Edit**:
 //   CF_API_TOKEN=... CF_ACCOUNT_ID=e669a42c7e15e30c3898902755a05e04 \
-//   HOSTNAME=flexi-worker-cloud-qa.jaakko-vuori.workers.dev \
+//   HOSTNAME=flexitracker-qa.jaakko-vuori.workers.dev \
 //   node tools/setup-access-bypass.mjs
 
 const TOKEN = req("CF_API_TOKEN");
 const ACCOUNT = req("CF_ACCOUNT_ID");
-const HOSTNAME = process.env.HOSTNAME ?? "flexi-worker-cloud-qa.jaakko-vuori.workers.dev";
+const HOSTNAME = process.env.HOSTNAME ?? "flexitracker-qa.jaakko-vuori.workers.dev";
 // /test is QA-only (endpoints 404 unless QA_TEST_MODE=1) and key-authed; bypass
 // keeps the CI fixtures loader from being challenged by the browser login.
 const PATHS = ["ingest", "config", "health", "whoami", "test"];

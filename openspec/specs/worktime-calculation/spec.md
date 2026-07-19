@@ -1,7 +1,7 @@
 # worktime-calculation Specification
 
 ## Purpose
-TBD - created by archiving change flexi-worker-cloud. Update Purpose after archive.
+TBD - created by archiving change flexitracker. Update Purpose after archive.
 ## Requirements
 ### Requirement: Timezone-authoritative boundaries
 All timestamps SHALL be stored in UTC, and a per-account timezone setting SHALL be authoritative for every day boundary, week boundary, and rule evaluation. The viewing browser SHALL NOT alter how data is bucketed.

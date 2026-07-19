@@ -1,12 +1,12 @@
 [Unit]
-Description=flexi-worker activity daemon
+Description=flexitracker activity daemon
 After=graphical-session.target
 
 [Service]
 Type=simple
-# Reads ~/.config/flexi-worker/config.toml written by `flexi-worker configure`.
+# Reads ~/.config/flexitracker/config.toml written by `flexitracker configure`.
 # Idle detection needs the user's graphical session (X11).
-ExecStart=%h/.local/bin/flexi-worker
+ExecStart=%h/.local/bin/flexitracker
 Restart=on-failure
 RestartSec=10
 

@@ -1,6 +1,6 @@
 //! Thin HTTP client to the backend: post a batch, fetch daemon thresholds.
 
-use flexi_core::EventBatch;
+use flexitracker_core::EventBatch;
 use serde::Deserialize;
 
 use crate::config::ThresholdCfg;

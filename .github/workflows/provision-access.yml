@@ -1,15 +1,22 @@
 name: Provision Access
 
-# Version-controlled Cloudflare Access setup — creates the bypass applications
-# for the daemon/monitoring paths (/ingest, /config, /health) so non-browser
-# clients aren't challenged. Idempotent; safe to re-run. Run manually per env.
+# Version-controlled Cloudflare Access setup for one hostname. Creates (idempotent):
+#  - the PROTECTED app guarding the browser UI, wired to the Google IdP — prints
+#    the generated AUD to paste into wrangler.toml ([env.*.vars].ACCESS_AUD);
+#  - the BYPASS apps for the daemon/monitoring paths (/ingest, /config, /health,
+#    /whoami, /test) so non-browser clients aren't challenged.
+# Safe to re-run. Run manually per environment.
 on:
   workflow_dispatch:
     inputs:
       hostname:
         description: Worker hostname to configure (qa or prod)
         required: true
-        default: flexi-worker-cloud-qa.jaakko-vuori.workers.dev
+        default: flexitracker-qa.jaakko-vuori.workers.dev
+      add_ci_service_token:
+        description: Allow the CI Access service token (QA only — needed by the post-deploy smoke)
+        type: boolean
+        default: false
 
 jobs:
   provision:
@@ -19,6 +26,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Create protected Access app (prints ACCESS_AUD)
+        working-directory: backend
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          HOSTNAME: ${{ inputs.hostname }}
+          ADD_CI_SERVICE_TOKEN: ${{ inputs.add_ci_service_token && '1' || '' }}
+        run: node tools/setup-access-app.mjs
       - name: Create Access bypass apps
         working-directory: backend
         env:

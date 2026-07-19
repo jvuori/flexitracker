@@ -73,7 +73,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "flexi-core"
+name = "flexitracker-core"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -81,10 +81,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "flexi-daemon"
+name = "flexitracker-daemon"
 version = "0.1.0"
 dependencies = [
- "flexi-core",
+ "flexitracker-core",
  "libloading",
  "serde",
  "serde_json",

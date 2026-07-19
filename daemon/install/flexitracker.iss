@@ -1,21 +1,21 @@
-; Inno Setup script for the flexi-worker daemon (Windows setup.exe).
+; Inno Setup script for the flexitracker daemon (Windows setup.exe).
 ; Installs the binary per-user (no admin), optionally configures it with the
 ; access key entered during setup, and registers a hidden login task.
-; Compiled in CI:  ISCC.exe install\flexi-worker.iss  ->  Output\flexi-worker-setup.exe
+; Compiled in CI:  ISCC.exe install\flexitracker.iss  ->  Output\flexitracker-setup.exe
 
-#define AppName "flexi-worker"
-#define AppExe "flexi-worker.exe"
+#define AppName "flexitracker"
+#define AppExe "flexitracker.exe"
 
 [Setup]
 AppName={#AppName}
 AppVersion=0.1.0
-AppPublisher=flexi-worker
+AppPublisher=flexitracker
 DefaultDirName={localappdata}\{#AppName}
 DisableProgramGroupPage=yes
 DisableDirPage=yes
 PrivilegesRequired=lowest
 OutputDir=Output
-OutputBaseFilename=flexi-worker-setup
+OutputBaseFilename=flexitracker-setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -33,7 +33,7 @@ begin
   KeyPage := CreateInputQueryPage(wpWelcome,
     'Authorize this machine',
     'Paste the access key from the web app (Machines > Add machine).',
-    'You can leave this blank and run "flexi-worker configure" from a terminal later.');
+    'You can leave this blank and run "flexitracker configure" from a terminal later.');
   KeyPage.Add('Access key:', False);
 end;
 
@@ -58,13 +58,13 @@ begin
 
     { Auto-start at login (per-user, hidden). }
     Exec(ExpandConstant('{sys}\schtasks.exe'),
-      '/Create /TN flexi-worker /SC ONLOGON /RL LIMITED /TR "wscript.exe ""' + Vbs + '""" /F',
+      '/Create /TN flexitracker /SC ONLOGON /RL LIMITED /TR "wscript.exe ""' + Vbs + '""" /F',
       '', SW_HIDE, ewWaitUntilTerminated, Rc);
   end;
 end;
 
 [UninstallRun]
-Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN flexi-worker /F"; Flags: runhidden; RunOnceId: "DelFlexiTask"
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN flexitracker /F"; Flags: runhidden; RunOnceId: "DelFlexiTask"
 
 [UninstallDelete]
 Type: files; Name: "{app}\launch.vbs"

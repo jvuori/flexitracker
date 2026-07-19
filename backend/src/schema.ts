@@ -1,5 +1,5 @@
 // Wire schema shared with the Rust daemon. Mirror of docs/wire-schema.md and
-// daemon/crates/flexi-core/src/lib.rs — keep all three in sync.
+// daemon/crates/flexitracker-core/src/lib.rs — keep all three in sync.
 
 export const EVENT_KINDS = [
   "active",

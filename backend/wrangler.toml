@@ -6,7 +6,7 @@
 #   wrangler d1 create flexi-registry-qa
 #   wrangler d1 create flexi-registry-prod
 
-name = "flexi-worker-cloud"
+name = "flexitracker"
 main = "src/index.ts"
 compatibility_date = "2024-11-01"
 compatibility_flags = ["nodejs_compat"]
@@ -34,7 +34,7 @@ database_id = "local-dev"          # replaced by real ids in qa/prod
 
 # ---- QA: auto-deployed on every push to main ----
 [env.qa]
-name = "flexi-worker-cloud-qa"
+name = "flexitracker-qa"
 
 [env.qa.vars]
 DEV_MODE = "0"
@@ -66,14 +66,25 @@ database_id = "980270e5-a098-4f27-9451-9b4b8635c35f"
 
 # ---- PROD: deployed only on explicit manual trigger ----
 [env.prod]
-name = "flexi-worker-cloud-prod"
+name = "flexitracker-prod"
+# PROD is reachable ONLY via the custom domain below — the *.workers.dev URL is
+# disabled so there is a single, Access-protected entrypoint.
+workers_dev = false
+
+# Custom domain: Cloudflare attaches flexitracker.vuorinet.net to this Worker on
+# deploy and auto-provisions + auto-renews the edge TLS cert (no certbot, no key,
+# no origin cert). Requires the API token to have, for the vuorinet.net zone,
+# Workers Routes:Edit + DNS:Edit + SSL and Certificates:Edit + Zone:Read.
+[[env.prod.routes]]
+pattern = "flexitracker.vuorinet.net"
+custom_domain = true
 
 [env.prod.vars]
 DEV_MODE = "0"
 ADMIN_EMAILS = "jaakko.vuori@gmail.com"
 ACCESS_TEAM_DOMAIN = "flexi-worker-team.cloudflareaccess.com"
-# PROD gets its OWN Access application → its OWN AUD. Fill this in when you
-# create the prod Access app for flexi-worker-cloud-prod.<sub>.workers.dev.
+# PROD gets its OWN Access application → its OWN AUD, created by
+# provision-access.yml for the custom domain flexitracker.vuorinet.net.
 ACCESS_AUD = "REPLACE_WITH_PROD_AUD"
 # Admin notification on new access requests — enable after the one-time Email
 # Routing bootstrap (see the QA note above), then uncomment [[env.prod.send_email]].

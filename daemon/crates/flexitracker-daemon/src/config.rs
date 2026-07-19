@@ -51,7 +51,7 @@ pub struct Config {
 
 impl Config {
     pub fn default_path() -> PathBuf {
-        if let Ok(p) = std::env::var("FLEXI_CONFIG") {
+        if let Ok(p) = std::env::var("FLEXITRACKER_CONFIG") {
             return PathBuf::from(p);
         }
         let base = std::env::var("HOME")
@@ -59,7 +59,7 @@ impl Config {
             .unwrap_or_else(|_| ".".into());
         Path::new(&base)
             .join(".config")
-            .join("flexi-worker")
+            .join("flexitracker")
             .join("config.toml")
     }
 

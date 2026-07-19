@@ -1,7 +1,7 @@
 # activity-daemon Specification
 
 ## Purpose
-TBD - created by archiving change flexi-worker-cloud. Update Purpose after archive.
+TBD - created by archiving change flexitracker. Update Purpose after archive.
 ## Requirements
 ### Requirement: OS idle and session monitoring
 The daemon SHALL determine user activity by polling OS-provided idle time (Windows `GetLastInputInfo`; Linux XScreenSaver) and SHALL treat a locked or logged-out session as inactive. It SHALL NOT capture input content (no keylogging).

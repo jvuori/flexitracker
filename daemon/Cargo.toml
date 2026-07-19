@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/flexi-core", "crates/flexi-daemon"]
+members = ["crates/flexitracker-core", "crates/flexitracker-daemon"]
 
 [workspace.package]
 version = "0.1.0"

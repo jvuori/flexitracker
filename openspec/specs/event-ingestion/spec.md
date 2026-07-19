@@ -1,7 +1,7 @@
 # event-ingestion Specification
 
 ## Purpose
-TBD - created by archiving change flexi-worker-cloud. Update Purpose after archive.
+TBD - created by archiving change flexitracker. Update Purpose after archive.
 ## Requirements
 ### Requirement: Access-key authenticated write path
 The ingest endpoint SHALL authenticate each request by resolving its access key to `(account_id, machine_id)` via the global registry and SHALL reject requests whose key is unknown or revoked. The endpoint SHALL NOT require interactive (human) authentication.

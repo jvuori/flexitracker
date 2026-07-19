@@ -1,4 +1,4 @@
-//! flexi-worker daemon: monitor idle/session state, emit debounced back-dated
+//! flexitracker daemon: monitor idle/session state, emit debounced back-dated
 //! transitions, buffer them in a durable outbox, and flush to the backend.
 //!
 //! Fail-fast: unexpected conditions abort with a clear message rather than being
@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use flexi_core::{ActivityEvent, EventKind, MachineDescriptor};
+use flexitracker_core::{ActivityEvent, EventKind, MachineDescriptor};
 
 use config::Config;
 use idle::{IdleSource, Sample};
@@ -28,9 +28,9 @@ fn now_ms() -> i64 {
         .as_millis() as i64
 }
 
-/// Backend URL baked into the release build (CI sets FLEXI_BACKEND_URL), so a
+/// Backend URL baked into the release build (CI sets FLEXITRACKER_BACKEND_URL), so a
 /// user normally only supplies the access key. Overridable with --backend-url.
-const DEFAULT_BACKEND_URL: Option<&str> = option_env!("FLEXI_BACKEND_URL");
+const DEFAULT_BACKEND_URL: Option<&str> = option_env!("FLEXITRACKER_BACKEND_URL");
 
 #[derive(PartialEq)]
 enum Cmd {
@@ -73,7 +73,7 @@ fn parse_args() -> Result<Args, String> {
             "--simulate" => a.simulate = true,
             "--once" => a.once = true,
             "--version" | "-V" => {
-                println!("flexi-worker {}", env!("CARGO_PKG_VERSION"));
+                println!("flexitracker {}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0);
             }
             "--help" | "-h" => {
@@ -88,15 +88,15 @@ fn parse_args() -> Result<Args, String> {
 
 fn print_help() {
     println!(
-        "flexi-worker — activity tracking daemon\n\n\
+        "flexitracker — activity tracking daemon\n\n\
          USAGE:\n    \
-         flexi-worker configure [--key KEY] [--backend-url URL]   Authorize this machine\n    \
-         flexi-worker test                                        Check connectivity (sends no data)\n    \
-         flexi-worker [OPTIONS]                                   Run the daemon\n\n\
+         flexitracker configure [--key KEY] [--backend-url URL]   Authorize this machine\n    \
+         flexitracker test                                        Check connectivity (sends no data)\n    \
+         flexitracker [OPTIONS]                                   Run the daemon\n\n\
          OPTIONS:\n    \
          --key, --account-key KEY   Per-machine access key (saved to config)\n    \
          --backend-url URL   Backend base URL (defaults to the built-in one)\n    \
-         --config PATH       Config file path (default: ~/.config/flexi-worker/config.toml)\n    \
+         --config PATH       Config file path (default: ~/.config/flexitracker/config.toml)\n    \
          --simulate          Post a synthetic day through the real pipeline and exit\n    \
          --once              Take a single reading, flush, and exit\n    \
          --check             Alias for `test`\n    \
@@ -171,7 +171,7 @@ fn run() -> Result<(), String> {
     // `test`: prove connectivity + authorization, sending no activity data.
     if args.cmd == Cmd::Test {
         if cfg.access_key.is_empty() || cfg.backend_url.is_empty() {
-            return Err("not configured — run `flexi-worker configure --key <KEY>` first".into());
+            return Err("not configured — run `flexitracker configure --key <KEY>` first".into());
         }
         return self_test(&cfg);
     }
@@ -179,7 +179,7 @@ fn run() -> Result<(), String> {
     // Daemon: needs a key + a url.
     if cfg.access_key.is_empty() || cfg.backend_url.is_empty() {
         return Err(
-            "missing access key or backend url (run `flexi-worker configure --key <KEY>`)".into(),
+            "missing access key or backend url (run `flexitracker configure --key <KEY>`)".into(),
         );
     }
     cfg.save(&config_path)

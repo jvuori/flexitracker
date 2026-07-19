@@ -1,7 +1,7 @@
 # identity-and-access Specification
 
 ## Purpose
-TBD - created by archiving change flexi-worker-cloud. Update Purpose after archive.
+TBD - created by archiving change flexitracker. Update Purpose after archive.
 ## Requirements
 ### Requirement: Human authentication via Google
 Human access to the web UI SHALL be authenticated with Google via Cloudflare Access; unauthenticated users SHALL NOT reach user data.

@@ -60,7 +60,7 @@ async function run() {
   const key = await j("/api/machines", { method: "POST", body: JSON.stringify({ label: "smoke" }) });
   check("issued access key", typeof key.access_key === "string" && !!key.machine_id);
 
-  // Connectivity self-test (what `flexi-worker test` calls): read-only, echoes the
+  // Connectivity self-test (what `flexitracker test` calls): read-only, echoes the
   // bound account + machine, sends no activity data.
   const who = await (
     await fetch(BASE + "/whoami", { headers: { authorization: `Bearer ${key.access_key}` } })

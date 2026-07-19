@@ -27,13 +27,13 @@ export async function notifyAdmin(
       EmailMessage: new (from: string, to: string, raw: string) => unknown;
     };
     const body =
-      `A new person requested access to FlexiWorker: ${requesterEmail}.` +
+      `A new person requested access to FlexiTracker: ${requesterEmail}.` +
       (note ? `\r\n\r\nTheir note: ${note}` : "") +
       `\r\n\r\nReview it in the admin console.`;
     const raw =
-      `From: FlexiWorker <${from}>\r\n` +
+      `From: FlexiTracker <${from}>\r\n` +
       `To: <${to}>\r\n` +
-      `Subject: FlexiWorker: new access request from ${requesterEmail}\r\n` +
+      `Subject: FlexiTracker: new access request from ${requesterEmail}\r\n` +
       `Content-Type: text/plain; charset=utf-8\r\n` +
       `MIME-Version: 1.0\r\n\r\n` +
       body;

@@ -1,4 +1,4 @@
-//! Shared types for flexi-worker-cloud.
+//! Shared types for flexitracker.
 //!
 //! The wire schema mirrors `docs/wire-schema.md` and `backend/src/schema.ts`.
 //! Keep all three in sync — any change here must be applied to the others.

@@ -1,7 +1,7 @@
 # manual-corrections Specification
 
 ## Purpose
-TBD - created by archiving change flexi-worker-cloud. Update Purpose after archive.
+TBD - created by archiving change flexitracker. Update Purpose after archive.
 ## Requirements
 ### Requirement: Raw events are immutable
 Raw sensor events SHALL never be modified or deleted by user action; corrections SHALL be recorded as a separate overlay.

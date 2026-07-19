@@ -53,19 +53,19 @@ jobs:
         # The backend URL is baked in so users only paste a key (option_env!).
         # Set the PROD_BASE_URL repo variable; if unset, users pass --backend-url.
         env:
-          FLEXI_BACKEND_URL: ${{ vars.PROD_BASE_URL }}
+          FLEXITRACKER_BACKEND_URL: ${{ vars.PROD_BASE_URL }}
         run: cargo build --release
 
       - name: Package (Linux)
         if: matrix.artifact == 'linux'
         working-directory: daemon
         run: |
-          mkdir -p dist/flexi-worker
-          cp target/release/flexi-worker dist/flexi-worker/
-          cp install/linux/install.sh dist/flexi-worker/
-          cp install/flexi-worker.service dist/flexi-worker/
-          cp install/README.md dist/flexi-worker/
-          tar -C dist -czf flexi-worker-linux-x86_64.tar.gz flexi-worker
+          mkdir -p dist/flexitracker
+          cp target/release/flexitracker dist/flexitracker/
+          cp install/linux/install.sh dist/flexitracker/
+          cp install/flexitracker.service dist/flexitracker/
+          cp install/README.md dist/flexitracker/
+          tar -C dist -czf flexitracker-linux-x86_64.tar.gz flexitracker
 
       - name: Install Inno Setup (Windows)
         if: matrix.artifact == 'windows'
@@ -76,19 +76,19 @@ jobs:
         working-directory: daemon
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path dist/flexi-worker | Out-Null
-          Copy-Item target/release/flexi-worker.exe dist/flexi-worker/
-          Copy-Item install/install.ps1 dist/flexi-worker/
-          Copy-Item install/README.md dist/flexi-worker/
-          Compress-Archive -Path dist/flexi-worker/* -DestinationPath flexi-worker-windows-x86_64.zip -Force
-          & "${Env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" install/flexi-worker.iss
-          Copy-Item install/Output/flexi-worker-setup.exe flexi-worker-setup.exe
+          New-Item -ItemType Directory -Force -Path dist/flexitracker | Out-Null
+          Copy-Item target/release/flexitracker.exe dist/flexitracker/
+          Copy-Item install/install.ps1 dist/flexitracker/
+          Copy-Item install/README.md dist/flexitracker/
+          Compress-Archive -Path dist/flexitracker/* -DestinationPath flexitracker-windows-x86_64.zip -Force
+          & "${Env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" install/flexitracker.iss
+          Copy-Item install/Output/flexitracker-setup.exe flexitracker-setup.exe
 
       - name: Publish to the GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            daemon/flexi-worker-linux-x86_64.tar.gz
-            daemon/flexi-worker-windows-x86_64.zip
-            daemon/flexi-worker-setup.exe
+            daemon/flexitracker-linux-x86_64.tar.gz
+            daemon/flexitracker-windows-x86_64.zip
+            daemon/flexitracker-setup.exe
           fail_on_unmatched_files: false

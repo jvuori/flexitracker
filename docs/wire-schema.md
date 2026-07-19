@@ -4,7 +4,7 @@ Single source of truth for the payload exchanged between the Rust daemon and the
 Cloudflare Worker. Kept in sync by hand in two places:
 
 - TypeScript: `backend/src/schema.ts`
-- Rust: `daemon/crates/flexi-core/src/lib.rs`
+- Rust: `daemon/crates/flexitracker-core/src/lib.rs`
 
 Any change here MUST be applied to both. The payload is intentionally tiny.
 

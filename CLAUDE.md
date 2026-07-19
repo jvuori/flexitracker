@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-**flexi-worker-cloud** — a personal flextime/saldo tracker. A minimal Rust daemon captures computer activity (idle/active transitions); a serverless Cloudflare backend turns it into trustworthy per-week working-time numbers the user transcribes into an employer's official system.
+**FlexiTracker** — a personal flextime/saldo tracker. A minimal Rust daemon captures computer activity (idle/active transitions); a serverless Cloudflare backend turns it into trustworthy per-week working-time numbers the user transcribes into an employer's official system.
 
-The full architecture, requirements, and rationale live in `openspec/changes/flexi-worker-cloud/` (`proposal.md`, `design.md`, `specs/`, `tasks.md`). **Read those before implementing**, and keep them in sync when decisions change. Significant changes get a new OpenSpec proposal before code.
+The full architecture, requirements, and rationale live in `openspec/changes/archive/2026-07-12-flexi-worker-cloud/` (`proposal.md`, `design.md`, `specs/`, `tasks.md`) and the per-capability specs under `openspec/specs/`. **Read those before implementing**, and keep them in sync when decisions change. Significant changes get a new OpenSpec proposal before code.
 
 ## Rule #1 — Zero cost, forever (non-negotiable)
 

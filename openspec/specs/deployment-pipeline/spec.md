@@ -1,7 +1,7 @@
 # deployment-pipeline Specification
 
 ## Purpose
-TBD - created by archiving change flexi-worker-cloud. Update Purpose after archive.
+TBD - created by archiving change flexitracker. Update Purpose after archive.
 ## Requirements
 ### Requirement: Cloudflare operations run through version-controlled Actions
 All Cloudflare operations — deploys AND infrastructure changes (Access applications/policies, resource bindings) — SHALL be performed by version-controlled scripts run in GitHub Actions, not by ad-hoc dashboard clicks or local commands, except for one-time credential/secret bootstraps.

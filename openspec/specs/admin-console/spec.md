@@ -1,7 +1,7 @@
 # admin-console Specification
 
 ## Purpose
-TBD - created by archiving change flexi-worker-cloud. Update Purpose after archive.
+TBD - created by archiving change flexitracker. Update Purpose after archive.
 ## Requirements
 ### Requirement: Registered users overview
 The admin console SHALL list registered accounts with their display email, creation time, machine count, and last-seen activity, read from the global registry.

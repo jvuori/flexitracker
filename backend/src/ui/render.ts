@@ -23,12 +23,12 @@ export function renderApp(
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>flexi-worker</title>
+<title>FlexiTracker</title>
 <style>${CSS}</style>
 </head>
 <body>
 <header>
-  <h1>flexi-worker</h1>
+  <h1>FlexiTracker</h1>
   <div id="who"></div>
 </header>
 <nav id="tabs">
@@ -38,7 +38,7 @@ export function renderApp(
   <button data-tab="admin" class="admin-only" hidden>Admin</button>
 </nav>
 <main id="view">Loading…</main>
-<script>window.__FLEXI__=${data};</script>
+<script>window.__FLEXITRACKER__=${data};</script>
 <script>${CLIENT}</script>
 </body>
 </html>`;
@@ -163,14 +163,14 @@ table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:.35rem;b
 
 // The client is defined as a plain string so the page stays node-free.
 const CLIENT = String.raw`
-const S=window.__FLEXI__;
+const S=window.__FLEXITRACKER__;
 const view=document.getElementById('view');
 document.getElementById('who').textContent=S.email;
 let TZ='UTC';
 const DAYNAMES=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 // Daemon downloads (published per release on the public repo).
-const REL='https://github.com/jvuori/flexi-worker-cloud/releases/latest/download';
-const DL={winSetup:REL+'/flexi-worker-setup.exe',winZip:REL+'/flexi-worker-windows-x86_64.zip',linux:REL+'/flexi-worker-linux-x86_64.tar.gz'};
+const REL='https://github.com/jvuori/flexitracker/releases/latest/download';
+const DL={winSetup:REL+'/flexitracker-setup.exe',winZip:REL+'/flexitracker-windows-x86_64.zip',linux:REL+'/flexitracker-linux-x86_64.tar.gz'};
 function detectOS(){const p=((navigator.userAgentData&&navigator.userAgentData.platform)||navigator.platform||navigator.userAgent||'').toLowerCase();
  if(p.indexOf('win')>=0)return'windows';if(p.indexOf('mac')>=0)return'mac';if(p.indexOf('linux')>=0&&p.indexOf('android')<0)return'linux';return'other';}
 
@@ -439,21 +439,21 @@ function renderSetup(cmd,accessKey){
    :os==='mac'
    ?'<span class="muted">macOS builds aren\'t available yet — use Windows or Linux for now.</span>'
    :'<a class="act" href="'+DL.winSetup+'">Windows installer</a> <a class="act" href="'+DL.linux+'">Linux (.tar.gz)</a>';
- const cfg='flexi-worker configure --key '+accessKey;
+ const cfg='flexitracker configure --key '+accessKey;
  cmd.innerHTML=
   '<p class="muted">Copy this key now — it is shown only once.</p>'+
   '<p><b>1. Download</b> &nbsp;'+dl+'</p>'+
   '<p><b>2. Authorize</b> — run once (or paste the key into the Windows installer):</p>'+
   '<div class="row"><code id="cfgcmd">'+cfg+'</code> <button class="act" id="copycfg">Copy</button></div>'+
-  '<p><b>3. Verify</b> — confirms connectivity, sends no time data:</p><code>flexi-worker test</code>'+
+  '<p><b>3. Verify</b> — confirms connectivity, sends no time data:</p><code>flexitracker test</code>'+
   '<p class="muted">It then auto-starts on login. Full per-OS steps (and the unsigned-app prompt): '+
-  '<a href="https://github.com/jvuori/flexi-worker-cloud/blob/master/daemon/install/README.md" target="_blank" rel="noopener">install guide</a>.</p>';
+  '<a href="https://github.com/jvuori/flexitracker/blob/master/daemon/install/README.md" target="_blank" rel="noopener">install guide</a>.</p>';
  cmd.querySelector('#copycfg').onclick=async()=>{try{await navigator.clipboard.writeText(cfg);cmd.querySelector('#copycfg').textContent='Copied ✓';}catch{const r=document.createRange();r.selectNode(cmd.querySelector('#cfgcmd'));getSelection().removeAllRanges();getSelection().addRange(r);}};
 }
 
 function renderMachines(m){
  view.innerHTML='<h2>Machines</h2>';
- view.append(el('<p class="muted">Set up a machine: add it below, download the daemon, authorize it with the key, verify with <code>flexi-worker test</code>, and it auto-starts on login.</p>'));
+ view.append(el('<p class="muted">Set up a machine: add it below, download the daemon, authorize it with the key, verify with <code>flexitracker test</code>, and it auto-starts on login.</p>'));
  const add=el('<div class="card"><div class="row"><input id="label" placeholder="Machine label (e.g. Laptop)"><button class="act" id="issue">+ Add machine</button></div><div id="cmd"></div></div>');
  view.append(add);
  document.getElementById('issue').onclick=async()=>{const label=document.getElementById('label').value||null;const k=await api('/machines',{method:'POST',body:JSON.stringify({label})});
@@ -544,7 +544,7 @@ function gateCard(title,bodyHtml){
 }
 function renderWaiting(){
  gateCard('Waiting for approval',
-  '<p>Thanks, '+S.email+'. Your request to use FlexiWorker has been received and is '+
+  '<p>Thanks, '+S.email+'. Your request to use FlexiTracker has been received and is '+
   'awaiting an administrator\'s review. You\'ll be able to sign in to the full app '+
   'once it is approved — check back later.</p>');
 }
@@ -553,7 +553,7 @@ function renderGate(){
  document.getElementById('tabs').style.display='none';
  if(S.status==='pending'&&!S.requested){
   const c=gateCard('Request access',
-   '<p>Welcome, '+S.email+'. FlexiWorker is invitation-only: request access below and '+
+   '<p>Welcome, '+S.email+'. FlexiTracker is invitation-only: request access below and '+
    'an administrator will review it before you can start.</p>'+
    '<textarea id="note" placeholder="Optional: a note for the admin (who you are / why)"></textarea>'+
    '<button class="act" id="req">Request access</button>');
@@ -565,7 +565,7 @@ function renderGate(){
   };
  } else if(S.status==='pending'){renderWaiting();}
  else if(S.status==='rejected'){gateCard('Access declined','<p>Your access request was not approved. If you believe this is a mistake, contact the administrator.</p>');}
- else if(S.status==='disabled'){gateCard('Account disabled','<p>Your FlexiWorker account has been disabled. Contact the administrator if you need it restored.</p>');}
+ else if(S.status==='disabled'){gateCard('Account disabled','<p>Your FlexiTracker account has been disabled. Contact the administrator if you need it restored.</p>');}
  else {renderWaiting();}
 }
 

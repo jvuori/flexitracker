@@ -1,5 +1,5 @@
 {
-  "name": "flexi-worker-cloud-backend",
+  "name": "flexitracker-backend",
   "private": true,
   "type": "module",
   "scripts": {

@@ -64,7 +64,7 @@ const app = new Hono<{
   Variables: { identity: Identity; accountId: string; status: AccountStatus };
 }>();
 
-app.get("/health", (c) => c.json({ ok: true, service: "flexi-worker-cloud" }));
+app.get("/health", (c) => c.json({ ok: true, service: "flexitracker" }));
 
 // ---- ingest (daemon write path, access-key auth) -----------------------
 app.post("/ingest", async (c) => {
