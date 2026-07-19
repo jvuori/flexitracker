@@ -60,6 +60,19 @@ export interface DayResult {
   balanceMs: number; // worked - norm
 }
 
+/**
+ * How far past a machine's last liveness evidence an open span may still run.
+ *
+ * Three heartbeat intervals: enough to ride out jitter and a dropped batch
+ * without truncating live work, small enough that a machine which never returns
+ * cannot accumulate meaningful phantom time. It deliberately does not try to
+ * cover a network outage — no finite grace can, since outages are unbounded —
+ * that case is handled by recompute when the buffered events arrive.
+ */
+export function graceMs(s: Settings): number {
+  return 3 * s.heartbeatSec * 1000;
+}
+
 const PRESENCE: ReadonlySet<EventKind> = new Set<EventKind>([
   "active",
   "login",
@@ -72,12 +85,43 @@ const ABSENCE: ReadonlySet<EventKind> = new Set<EventKind>([
   "logout",
 ]);
 
+/** A span whose end was inferred from the bound rather than observed. */
+export interface ProvisionalSpan extends Interval {
+  /** Last time this machine proved it was alive (any presence event). */
+  lastAlive: number;
+  /**
+   * The machine is still being seen, so this span's end is still advancing.
+   * The UI gates edit actions on this rather than on provisionality itself: a
+   * machine that never returns leaves a permanently provisional span, and
+   * withholding corrections from it would make it impossible to fix.
+   */
+  growing: boolean;
+}
+
+export interface PairedSpans {
+  active: Interval[];
+  provisional: ProvisionalSpan[];
+}
+
 /**
  * Pair transitions into active intervals, per machine, then union across
- * machines (the person is working if any machine is active). Orphan open spans
- * are closed at `checkTime`.
+ * machines (the person is working if any machine is active).
+ *
+ * An orphan open span is NOT counted to `checkTime` — that is what let a
+ * machine shut down on Friday fill Saturday and Sunday as well. It ends at
+ * `min(checkTime, lastAlive + graceMs)`, where `lastAlive` is the last presence
+ * event (heartbeats included) from that machine.
+ *
+ * The bound is deliberately provisional and derived at read time, never written
+ * back: absence of heartbeats cannot distinguish "machine is off" from "machine
+ * is working behind a broken network", so when buffered events arrive later,
+ * recomputation simply supersedes it. An explicit closing event always wins.
  */
-export function pairSpans(events: RawEvent[], checkTime: number): Interval[] {
+export function pairSpans(
+  events: RawEvent[],
+  checkTime: number,
+  graceMs: number,
+): PairedSpans {
   const byMachine = new Map<string, RawEvent[]>();
   for (const e of events) {
     const list = byMachine.get(e.machine_id) ?? [];
@@ -86,12 +130,17 @@ export function pairSpans(events: RawEvent[], checkTime: number): Interval[] {
   }
 
   const all: Interval[] = [];
+  const provisional: ProvisionalSpan[] = [];
   for (const list of byMachine.values()) {
     list.sort((a, b) => a.ts - b.ts);
     let open: number | null = null;
+    let lastAlive = 0;
     for (const e of list) {
       if (PRESENCE.has(e.kind)) {
         if (open === null) open = e.ts;
+        // Any presence event proves the machine was running at that moment;
+        // heartbeats exist precisely to keep this advancing during a long span.
+        lastAlive = Math.max(lastAlive, e.ts);
       } else if (ABSENCE.has(e.kind)) {
         if (open !== null) {
           if (e.ts > open) all.push({ start: open, end: e.ts });
@@ -99,9 +148,19 @@ export function pairSpans(events: RawEvent[], checkTime: number): Interval[] {
         }
       }
     }
-    if (open !== null && checkTime > open) all.push({ start: open, end: checkTime });
+    if (open !== null) {
+      // A live machine's lastAlive is at most one heartbeat old, so its bound
+      // lands in the future and checkTime governs — an active session in
+      // progress is untouched. Only a machine that has gone quiet is truncated.
+      const bound = lastAlive + graceMs;
+      const end = Math.min(checkTime, bound);
+      if (end > open) {
+        all.push({ start: open, end });
+        provisional.push({ start: open, end, lastAlive, growing: bound >= checkTime });
+      }
+    }
   }
-  return mergeIntervals(all);
+  return { active: mergeIntervals(all), provisional };
 }
 
 function inHours(gap: Interval, tz: string, startMin: number, endMin: number): boolean {
@@ -119,6 +178,7 @@ export function computeDay(
   dayStart: number,
   s: Settings,
   weekdayMon0: number,
+  provisionalSpans: ProvisionalSpan[] = [],
 ): DayResult {
   const dayEnd = addLocalDays(dayStart, 1, s.timezone);
   const win: Interval = { start: dayStart, end: dayEnd };
@@ -184,6 +244,20 @@ export function computeDay(
   ];
   const partitionCovered = mergeIntervals(parts.map((p) => ({ start: p.start, end: p.end })));
   parts.push(...toPeriods(subtract([win], partitionCovered), "gap"));
+
+  // Mark the sensor periods whose end was inferred rather than observed. The
+  // uncertainty belongs to the whole period, not just its tail: without a
+  // closing event the period has no confirmed end at all, and its extent moves
+  // as evidence arrives.
+  for (const p of parts) {
+    if (p.type !== "sensor") continue;
+    const prov = provisionalSpans.find((v) => p.start < v.end && p.end > v.start);
+    if (prov) {
+      p.provisional = true;
+      p.lastAlive = prov.lastAlive;
+      p.growing = prov.growing;
+    }
+  }
   const periods = parts.sort((a, b) => a.start - b.start);
 
   // Office-day envelope: presence spans overlapping the configured window
@@ -284,11 +358,11 @@ export function computeWeek(
   s: Settings,
   checkTime: number,
 ): WeekResult {
-  const active = pairSpans(events, checkTime);
+  const { active, provisional } = pairSpans(events, checkTime, graceMs(s));
   const days: DayResult[] = [];
   let cursor = localDayStart(weekStart, s.timezone);
   for (let i = 0; i < 7; i++) {
-    days.push(computeDay(active, corrections, cursor, s, i));
+    days.push(computeDay(active, corrections, cursor, s, i, provisional));
     cursor = addLocalDays(cursor, 1, s.timezone);
   }
   const weeklyWorkedMs = days.reduce((sum, d) => sum + d.workedMs, 0);

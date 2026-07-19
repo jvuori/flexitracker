@@ -30,24 +30,24 @@
 
 ## 3. Backend: provisional bound for open spans
 
-- [ ] 3.1 In `pairSpans` (`backend/src/worktime/worktime.ts`), track per machine the timestamp of the last `PRESENCE` event seen (heartbeat included) as `lastAlive`, alongside the existing `open` cursor.
-- [ ] 3.2 Close an orphan open span at `min(checkTime, lastAlive + GRACE)` instead of `checkTime`, with `GRACE = 3 × heartbeatSec × 1000`. Drop the span entirely if the bound is not after `open`.
-- [ ] 3.3 Keep the bound purely read-time — derived from stored events inside `pairSpans`, never written back as an event or correction, so a later arrival supersedes it with no undo.
-- [ ] 3.4 Carry the inference through the result: mark a period whose end came from the bound as provisional and attach the machine's last-seen timestamp, so the UI can distinguish an inferred end from an observed one. Periods closed by an event are not marked.
-- [ ] 3.5 Also expose whether the period is still **growing** — its machine seen within the liveness window (`3 × heartbeatSec`, the notion `getStatus` already uses). The UI gates edit actions on this, not on `provisional`, so a permanently-stalled period stays correctable.
-- [ ] 3.6 Thread `heartbeatSec` into `pairSpans` — it already reaches `computeWeek` via `Settings`; pass the derived grace rather than the whole settings object so the function stays pure and unit-testable.
-- [ ] 3.7 Update the callers at `tenant-do.ts:316` (`getStatus`) and `:397` so both use the same bound. Check whether `getStatus`'s own `3 × heartbeatSec` liveness check at `:318` now duplicates this and collapse it if so.
+- [x] 3.1 In `pairSpans` (`backend/src/worktime/worktime.ts`), track per machine the timestamp of the last `PRESENCE` event seen (heartbeat included) as `lastAlive`, alongside the existing `open` cursor.
+- [x] 3.2 Close an orphan open span at `min(checkTime, lastAlive + GRACE)` instead of `checkTime`, with `GRACE = 3 × heartbeatSec × 1000`. Drop the span entirely if the bound is not after `open`.
+- [x] 3.3 Keep the bound purely read-time — derived from stored events inside `pairSpans`, never written back as an event or correction, so a later arrival supersedes it with no undo.
+- [x] 3.4 Carry the inference through the result: mark a period whose end came from the bound as provisional and attach the machine's last-seen timestamp, so the UI can distinguish an inferred end from an observed one. Periods closed by an event are not marked.
+- [x] 3.5 Also expose whether the period is still **growing** — its machine seen within the liveness window (`3 × heartbeatSec`, the notion `getStatus` already uses). The UI gates edit actions on this, not on `provisional`, so a permanently-stalled period stays correctable.
+- [x] 3.6 Thread `heartbeatSec` into `pairSpans` — it already reaches `computeWeek` via `Settings`; pass the derived grace rather than the whole settings object so the function stays pure and unit-testable.
+- [x] 3.7 Update the callers at `tenant-do.ts:316` (`getStatus`) and `:397` so both use the same bound. Check whether `getStatus`'s own `3 × heartbeatSec` liveness check at `:318` now duplicates this and collapse it if so.
 
 ## 4. Backend: calc tests
 
-- [ ] 4.1 A machine that emits `active` + heartbeats then stops: the span ends at `lastHeartbeat + grace`, not at `checkTime`.
-- [ ] 4.2 The Friday-16:00-to-Sunday-evening case from the design: Friday is bounded and Saturday/Sunday contain no time from that machine.
-- [ ] 4.3 A currently-heartbeating machine is not truncated — its open span still reaches `checkTime`.
-- [ ] 4.4 One missed heartbeat inside a continuing session does not truncate the span (grace covers it).
-- [ ] 4.5 An explicit `idle` later than the inferred bound wins — the machine's own account supersedes the inference.
-- [ ] 4.6 Late-arriving heartbeats extend a previously bounded span on recompute; late-arriving `idle` replaces the bound entirely.
-- [ ] 4.7 Two machines, one suspended mid-span and one active: the suspended one is bounded independently and does not inflate the union.
-- [ ] 4.8 The truncated remainder is an ordinary gap — assert an out-of-hours tail is not counted and an in-hours sub-threshold tail is bridged, i.e. existing rules decide it.
+- [x] 4.1 A machine that emits `active` + heartbeats then stops: the span ends at `lastHeartbeat + grace`, not at `checkTime`.
+- [x] 4.2 The Friday-16:00-to-Sunday-evening case from the design: Friday is bounded and Saturday/Sunday contain no time from that machine.
+- [x] 4.3 A currently-heartbeating machine is not truncated — its open span still reaches `checkTime`.
+- [x] 4.4 One missed heartbeat inside a continuing session does not truncate the span (grace covers it).
+- [x] 4.5 An explicit `idle` later than the inferred bound wins — the machine's own account supersedes the inference.
+- [x] 4.6 Late-arriving heartbeats extend a previously bounded span on recompute; late-arriving `idle` replaces the bound entirely.
+- [x] 4.7 Two machines, one suspended mid-span and one active: the suspended one is bounded independently and does not inflate the union.
+- [x] 4.8 The truncated remainder is an ordinary gap — assert an out-of-hours tail is not counted and an in-hours sub-threshold tail is bridged, i.e. existing rules decide it.
 
 ## 5. Backend: the repair path (dirty-marking widens)
 

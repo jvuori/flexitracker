@@ -21,27 +21,109 @@ function provMs(spans: Span[], p: Span["provenance"]): number {
 }
 
 describe("pairSpans", () => {
-  const ev = (machine_id: string, h: number, kind: RawEvent["kind"]): RawEvent => ({
+  const ev = (machine_id: string, h: number, kind: RawEvent["kind"], m = 0): RawEvent => ({
     machine_id,
-    ts: at(h),
+    ts: at(h, m),
     kind,
   });
+  // 3 × heartbeatSec, the same grace the production callers derive.
+  const GRACE = 3 * S.heartbeatSec * 1000;
+
   it("pairs active→idle transitions", () => {
-    const spans = pairSpans(
+    const { active: spans } = pairSpans(
       [ev("m1", 8, "active"), ev("m1", 10, "idle"), ev("m1", 11, "active"), ev("m1", 12, "idle")],
       at(23),
+      GRACE,
     );
     expect(spans).toEqual([active(8, 0, 10, 0), active(11, 0, 12, 0)]);
   });
   it("unions across machines", () => {
-    const spans = pairSpans(
+    const { active: spans } = pairSpans(
       [ev("m1", 8, "active"), ev("m1", 12, "idle"), ev("m2", 11, "active"), ev("m2", 13, "idle")],
       at(23),
+      GRACE,
     );
     expect(spans).toEqual([active(8, 0, 13, 0)]);
   });
-  it("closes an orphan open span at checkTime", () => {
-    expect(pairSpans([ev("m1", 8, "active")], at(12))).toEqual([active(8, 0, 12, 0)]);
+
+  // The bug this bound exists for: an orphan span used to run to checkTime,
+  // filling every day between the machine going quiet and someone looking.
+  it("bounds an orphan open span at the last heartbeat plus grace", () => {
+    const { active: spans } = pairSpans(
+      [ev("m1", 8, "active"), ev("m1", 9, "heartbeat")],
+      at(20),
+      GRACE,
+    );
+    expect(spans).toEqual([{ start: at(8), end: at(9) + GRACE }]);
+  });
+
+  it("does not truncate a machine that is still heartbeating", () => {
+    // Last heartbeat one minute ago: the bound lands in the future, so the
+    // span runs to checkTime and a session in progress is untouched.
+    const { active: spans, provisional } = pairSpans(
+      [ev("m1", 8, "active"), ev("m1", 11, "heartbeat", 59)],
+      at(12),
+      GRACE,
+    );
+    expect(spans).toEqual([{ start: at(8), end: at(12) }]);
+    expect(provisional[0]!.growing).toBe(true);
+  });
+
+  it("rides out a single missed heartbeat", () => {
+    // Heartbeats at 09:00 and 09:10 with the 09:05 one lost; still working.
+    const { active: spans } = pairSpans(
+      [ev("m1", 8, "active"), ev("m1", 9, "heartbeat"), ev("m1", 9, "heartbeat", 10)],
+      at(9, 12),
+      GRACE,
+    );
+    expect(spans).toEqual([{ start: at(8), end: at(9, 12) }]);
+  });
+
+  it("lets an explicit idle beat the inferred bound", () => {
+    // The machine's own account supersedes the backend's inference, even when
+    // it reports working later than the bound would have allowed.
+    const { active: spans, provisional } = pairSpans(
+      [ev("m1", 8, "active"), ev("m1", 9, "heartbeat"), ev("m1", 16, "idle")],
+      at(20),
+      GRACE,
+    );
+    expect(spans).toEqual([active(8, 0, 16, 0)]);
+    expect(provisional).toEqual([]);
+  });
+
+  it("extends a previously bounded span when late heartbeats arrive", () => {
+    const events = [ev("m1", 8, "active"), ev("m1", 9, "heartbeat")];
+    const before = pairSpans(events, at(20), GRACE).active;
+    // The outbox drains: heartbeats through 15:00 arrive with true timestamps.
+    const after = pairSpans([...events, ev("m1", 15, "heartbeat")], at(20), GRACE).active;
+    expect(before).toEqual([{ start: at(8), end: at(9) + GRACE }]);
+    expect(after).toEqual([{ start: at(8), end: at(15) + GRACE }]);
+  });
+
+  it("bounds a quiet machine without inflating a second, active one", () => {
+    const { active: spans } = pairSpans(
+      [
+        ev("m1", 8, "active"), // laptop suspends after one heartbeat
+        ev("m1", 8, "heartbeat", 30),
+        ev("m2", 13, "active"), // desktop genuinely working
+        ev("m2", 14, "idle"),
+      ],
+      at(20),
+      GRACE,
+    );
+    expect(spans).toEqual([
+      { start: at(8), end: at(8, 30) + GRACE },
+      active(13, 0, 14, 0),
+    ]);
+  });
+
+  it("marks a bounded period provisional and an observed one not", () => {
+    const bounded = pairSpans([ev("m1", 8, "active"), ev("m1", 9, "heartbeat")], at(20), GRACE);
+    expect(bounded.provisional).toEqual([
+      { start: at(8), end: at(9) + GRACE, lastAlive: at(9), growing: false },
+    ]);
+    const closed = pairSpans([ev("m1", 8, "active"), ev("m1", 9, "idle")], at(20), GRACE);
+    expect(closed.provisional).toEqual([]);
   });
 });
 
@@ -258,6 +340,63 @@ describe("computeWeek", () => {
     expect(w.days[0]!.workedMs).toBe(7.5 * H); // Monday 8h - lunch
     expect(w.weeklyWorkedMs).toBe(7.5 * H); // only Monday has data
     expect(w.weeklyBalanceMs).toBe(7.5 * H - S.weeklyNormMin * MIN);
+  });
+
+  // The failure this change exists to stop. A machine that goes down without
+  // emitting idle used to fill every day from then until the week was viewed:
+  // Friday to midnight, all of Saturday, and Sunday up to now.
+  it("does not bleed a machine's downtime into the following days", () => {
+    const GRACE = 3 * S.heartbeatSec * 1000;
+    const D = 24 * H;
+    const fri = day + 4 * D;
+    const events: RawEvent[] = [
+      { machine_id: "m", ts: fri + 9 * H, kind: "active" },
+      { machine_id: "m", ts: fri + 16 * H, kind: "heartbeat" },
+      // then nothing — abrupt shutdown, no idle ever emitted
+    ];
+    // Viewed Sunday evening, two days later.
+    const w = computeWeek(day, events, [], S, day + 6 * D + 18 * H);
+
+    expect(w.days[4]!.grossMs).toBe(7 * H + GRACE); // Friday: 09:00 → 16:00 + grace
+    expect(w.days[5]!.grossMs).toBe(0); // Saturday untouched
+    expect(w.days[6]!.grossMs).toBe(0); // Sunday untouched
+  });
+});
+
+describe("the remainder past the bound is an ordinary gap", () => {
+  const GRACE = 3 * S.heartbeatSec * 1000;
+
+  it("leaves an out-of-hours tail uncounted", () => {
+    // Bound lands at 16:15, past the 16:00 office-hours end, so the rest of the
+    // evening is a plain gap that bridging does not touch.
+    const events: RawEvent[] = [
+      { machine_id: "m", ts: at(9), kind: "active" },
+      { machine_id: "m", ts: at(16), kind: "heartbeat" },
+    ];
+    const w = computeWeek(day, events, [], S, at(23));
+    expect(w.days[0]!.grossMs).toBe(7 * H + GRACE);
+  });
+
+  it("bridges an in-hours sub-threshold tail like any other sensor gap", () => {
+    // Two machines on purpose. A single machine's later `active` would just
+    // continue its still-open span and never orphan it, so the bound would not
+    // apply at all and this would pass without testing anything.
+    //
+    // m1 drops after its 10:00 heartbeat (bound 10:15); m2 picks up at 10:30.
+    // The 15-minute hole is in-hours and under the private-leave threshold, so
+    // existing rules bridge it — a truncated remainder needs no special case.
+    const events: RawEvent[] = [
+      { machine_id: "m1", ts: at(8), kind: "active" },
+      { machine_id: "m1", ts: at(10), kind: "heartbeat" },
+      { machine_id: "m2", ts: at(10, 30), kind: "active" },
+      { machine_id: "m2", ts: at(12), kind: "idle" },
+    ];
+    const w = computeWeek(day, events, [], S, at(23));
+    const bridged = w.days[0]!.periods.filter((p) => p.type === "auto_bridged");
+    expect(bridged).toHaveLength(1);
+    expect(bridged[0]!.start).toBe(at(10) + GRACE);
+    expect(bridged[0]!.end).toBe(at(10, 30));
+    expect(w.days[0]!.grossMs).toBe(4 * H); // 08:00–12:00, hole bridged
   });
 });
 

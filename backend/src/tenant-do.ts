@@ -7,6 +7,7 @@ import { localDayStart, localWeekStart, addLocalDays, weekdayMon0 } from "./work
 import {
   computeDay,
   computeWeek,
+  graceMs,
   pairSpans,
   type Correction,
   type CorrectionKind,
@@ -313,9 +314,12 @@ export class TenantDO extends DurableObject<Env> {
 
     const s = this.getSettings();
     const recent = this.loadEvents(now - 2 * DAY_MS, now + DAY_MS);
-    const spans = pairSpans(recent, now);
+    const { active: spans, provisional } = pairSpans(recent, now, graceMs(s));
     const openStart = spans.length > 0 ? spans[spans.length - 1]! : null;
-    const active = openStart !== null && openStart.end >= now - s.heartbeatSec * 1000 * 3;
+    // "Active now" is exactly "the open span is still growing" — the machine
+    // has been seen within the liveness window. pairSpans already computes that
+    // from the same grace, so this no longer re-derives it from heartbeatSec.
+    const active = provisional.some((p) => p.growing);
 
     const host = this.sql
       .exec("SELECT hostname FROM machine WHERE machine_id = ?", last.machine_id)
@@ -394,13 +398,14 @@ export class TenantDO extends DurableObject<Env> {
   private sealDay(dayStart: number, s: Settings, now: number): void {
     const dayEnd = addLocalDays(dayStart, 1, s.timezone);
     const events = this.loadEvents(dayStart - DAY_MS, dayEnd + DAY_MS);
-    const active = pairSpans(events, now);
+    const { active, provisional } = pairSpans(events, now, graceMs(s));
     const day = computeDay(
       active,
       this.loadCorrections(dayStart, dayEnd),
       dayStart,
       s,
       weekdayMon0(dayStart, s.timezone),
+      provisional,
     );
 
     this.sql.exec(

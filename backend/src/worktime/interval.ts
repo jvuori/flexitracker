@@ -31,6 +31,20 @@ export interface Period extends Interval {
   type: PeriodType;
   /** For manual_added / removed periods: the correction row ids covering it. */
   correctionIds?: number[];
+  /**
+   * The period's end was inferred from its machine's last liveness evidence
+   * rather than observed from a closing event — it is the last known
+   * situation, not a settled measurement, and moves as evidence arrives.
+   */
+  provisional?: boolean;
+  /** When the machine was last seen, for a provisional period. */
+  lastAlive?: number;
+  /**
+   * The machine is still being seen, so this period is still growing. Edit
+   * actions are withheld while true: a correction anchored to a moving edge is
+   * not the correction the user meant.
+   */
+  growing?: boolean;
 }
 
 export function duration(i: Interval): number {
