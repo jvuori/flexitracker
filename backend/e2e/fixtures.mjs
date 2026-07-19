@@ -75,18 +75,29 @@ async function main() {
   for (const week of WEEKS) {
     for (const day of week.days) {
       for (const b of day.blocks) {
+        // `hb` marks a block whose machine went quiet without ever saying it
+        // stopped — shut down abruptly, or suspended and never came back. It
+        // emits `active` plus heartbeats up to `e` and NO closing idle, which is
+        // what the liveness bound exists to handle. Without this shape every
+        // fixture span is explicitly closed and the bound is never exercised.
+        const events = b.hb
+          ? [
+              { ts: tsOf(week.offset, day.wd, b.s), kind: "active" },
+              { ts: tsOf(week.offset, b.ed ?? day.wd, b.e), kind: "heartbeat" },
+            ]
+          : [
+              { ts: tsOf(week.offset, day.wd, b.s), kind: "active" },
+              // `ed` (end weekday) lets a single work effort run past midnight;
+              // the calculation splits it at the day boundary via per-day clamp.
+              { ts: tsOf(week.offset, b.ed ?? day.wd, b.e), kind: "idle" },
+            ];
         await jf(
           "/ingest",
           {
             method: "POST",
             body: JSON.stringify({
               batch_seq: seq++,
-              events: [
-                { ts: tsOf(week.offset, day.wd, b.s), kind: "active" },
-                // `ed` (end weekday) lets a single work effort run past midnight;
-                // the calculation splits it at the day boundary via per-day clamp.
-                { ts: tsOf(week.offset, b.ed ?? day.wd, b.e), kind: "idle" },
-              ],
+              events,
             }),
           },
           keys[b.m],

@@ -137,8 +137,8 @@ export const WEEKS = [
   {
     offset: -2,
     label: "two weeks ago",
-    weeklyWorked: 940,
-    weeklyBalance: -1310,
+    weeklyWorked: 1345,
+    weeklyBalance: -905,
     days: [
       {
         wd: 0,
@@ -155,6 +155,27 @@ export const WEEKS = [
         corrections: [],
         // 516m gross; −30 lunch.
         expect: { worked: 486, balance: 36, reviewable: 0 },
+      },
+      {
+        wd: 2,
+        label: "machine went quiet mid-span (abrupt shutdown, no idle ever sent)",
+        // `hb`: active + heartbeats to 16:00, then nothing. The span has no
+        // closing event, so its end is INFERRED at the last heartbeat plus the
+        // grace (3 × 5 min) rather than running to whenever the week is viewed.
+        blocks: [{ m: 0, s: [9, 0], e: [16, 0], hb: true }],
+        corrections: [],
+        // 09:00 → 16:15 = 435m gross; > 6h so −30 lunch → 405 worked; norm 450.
+        expect: { worked: 405, balance: -45, reviewable: 0 },
+      },
+      {
+        wd: 3,
+        label: "day after the quiet machine — must be empty, not filled by the open span",
+        // The regression that would hurt most if it returned: before the bound,
+        // Wednesday's unclosed span ran to `now`, filling Thursday completely
+        // (and every day after it). Asserting zero here is the whole point.
+        blocks: [],
+        corrections: [],
+        expect: { worked: 0, balance: -450, reviewable: 0 },
       },
     ],
   },
