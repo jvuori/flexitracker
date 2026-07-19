@@ -52,9 +52,19 @@ Rule #1 makes this a first-class question rather than an afterthought, so it is 
 
 **Daily total.** A heartbeat every 5 minutes across an 8-hour day is 96 heartbeats per machine, so ≈ 384 row writes per machine per day, ≈ 770 for two machines. Transitions and the nightly seal add tens more. Call it **~1,000 row writes/day**.
 
-Against a Durable Objects SQLite free-tier allowance on the order of **100,000 rows written/day**, that is roughly **1%**. Storage is equally unthreatening: 120 days of retained heartbeats for two machines is ~23,000 rows, low single-digit megabytes against a 5 GB allowance.
+**Verified free-plan limits** (checked against the Cloudflare Durable Objects pricing docs on 2026-07-19, rather than trusted from memory):
 
-The ratio is what matters, and it is robust — the conclusion survives the allowance being several times smaller than stated. The exact current figures still get verified as a task, per the standing instruction to confirm free-tier quotas rather than trust a remembered number.
+| Limit | Free plan | This account | Headroom |
+| --- | --- | --- | --- |
+| Rows written | 100,000 / day | ~1,000 | ~100× |
+| Rows read | 5,000,000 / day | far below | — |
+| Stored data | 5 GB total | ~23,000 rows over 120 days, single-digit MB | — |
+| Requests | 100,000 / day | ~200 for heartbeats | ~500× |
+| Duration | 13,000 GB-s / day | negligible | — |
+
+Exceeding a limit on the free plan fails that operation rather than billing, so the constraint is a hard stop and not a cost risk — which is the right shape for Rule #1, but also means headroom must be real rather than assumed.
+
+The ratio is what matters, and it is robust: the conclusion survives the allowance being several times smaller than measured.
 
 **Ephemeral memory does not help, and is actively wrong here.** A Durable Object's in-memory state is free but is lost when the object is evicted, and eviction follows inactivity — so the in-memory liveness marker would be discarded at precisely the moment the machine goes quiet, which is the only moment it is needed. Workers KV is worse on its own terms: its free-tier write allowance is around a thousand per day, an order of magnitude *below* what DO SQLite already grants. The Cache API is neither durable nor authoritative. DO SQLite is already the cheapest durable option available on the free plan.
 

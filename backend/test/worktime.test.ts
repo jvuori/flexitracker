@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Period, PeriodType, Span } from "../src/worktime/interval";
 import { duration } from "../src/worktime/interval";
-import { DEFAULT_SETTINGS } from "../src/worktime/settings";
+import { DAEMON_PROTOCOL, DEFAULT_SETTINGS } from "../src/worktime/settings";
 import type { Settings } from "../src/worktime/settings";
 import { computeDay, computeWeek, pairSpans, roundToStep } from "../src/worktime/worktime";
 import type { Correction, RawEvent } from "../src/worktime/worktime";
@@ -27,7 +27,7 @@ describe("pairSpans", () => {
     kind,
   });
   // 3 × heartbeatSec, the same grace the production callers derive.
-  const GRACE = 3 * S.heartbeatSec * 1000;
+  const GRACE = 3 * DAEMON_PROTOCOL.heartbeatSec * 1000;
 
   it("pairs active→idle transitions", () => {
     const { active: spans } = pairSpans(
@@ -346,7 +346,7 @@ describe("computeWeek", () => {
   // emitting idle used to fill every day from then until the week was viewed:
   // Friday to midnight, all of Saturday, and Sunday up to now.
   it("does not bleed a machine's downtime into the following days", () => {
-    const GRACE = 3 * S.heartbeatSec * 1000;
+    const GRACE = 3 * DAEMON_PROTOCOL.heartbeatSec * 1000;
     const D = 24 * H;
     const fri = day + 4 * D;
     const events: RawEvent[] = [
@@ -364,7 +364,7 @@ describe("computeWeek", () => {
 });
 
 describe("the remainder past the bound is an ordinary gap", () => {
-  const GRACE = 3 * S.heartbeatSec * 1000;
+  const GRACE = 3 * DAEMON_PROTOCOL.heartbeatSec * 1000;
 
   it("leaves an out-of-hours tail uncounted", () => {
     // Bound lands at 16:15, past the 16:00 office-hours end, so the rest of the

@@ -25,11 +25,36 @@ export interface Settings {
   /** Half-hour transcription rounding (minutes). */
   roundingMin: number;
 
-  // Daemon-side thresholds (fetched by the daemon; not used in backend calc).
-  minInactivitySec: number;
+  /**
+   * How much sustained input confirms a return to work (seconds). The one
+   * daemon threshold that is a genuine preference — it separates a mouse
+   * brushed in passing from someone actually sitting down. Safe to expose
+   * because DAEMON_PROTOCOL.minInactivitySec caps how often transitions can
+   * occur, so this cannot drive write volume on its own.
+   */
   minActivitySec: number;
-  heartbeatSec: number;
 }
+
+/**
+ * Daemon timing that is NOT per-account. These are protocol and cost
+ * parameters, not preferences, and are served to daemons over `/config` so both
+ * sides read one source of truth.
+ *
+ * They are constants rather than validated settings because a value that cannot
+ * be set cannot be misconfigured. Ingest write volume scales with both — the
+ * heartbeat interval directly, the inactivity threshold through how often
+ * transitions occur — so a per-account value could take the deployment outside
+ * the free tier. At the 5-minute heartbeat an account uses roughly 1% of the
+ * daily row-write allowance; a 1-second value would be ~350,000 writes/day and
+ * breach it.
+ *
+ * `minInactivitySec` additionally defines the boundary between downtime that is
+ * absorbed and downtime that is reconciled, which must not vary by account.
+ */
+export const DAEMON_PROTOCOL = {
+  minInactivitySec: 10 * 60,
+  heartbeatSec: 5 * 60,
+} as const;
 
 export const DEFAULT_SETTINGS: Settings = {
   timezone: "UTC",
@@ -43,14 +68,25 @@ export const DEFAULT_SETTINGS: Settings = {
   lunchDeductMin: 30,
   lunchThresholdMin: 6 * 60,
   roundingMin: 30,
-  minInactivitySec: 10 * 60,
   minActivitySec: 30,
-  heartbeatSec: 5 * 60,
 };
 
-/** Merge stored partial settings over defaults (fail-safe for missing fields). */
+/** Keys that were once per-account settings and are now backend constants.
+ *  Stripped on read so a value stored before the change cannot resurrect. */
+const RETIRED_KEYS = ["heartbeatSec", "minInactivitySec"] as const;
+
+/**
+ * Merge stored partial settings over defaults (fail-safe for missing fields).
+ *
+ * Retired keys are dropped rather than merged: accounts written before those
+ * became constants still carry them in stored JSON, and spreading that over the
+ * defaults would reinstate a per-account value for a field that is no longer
+ * supposed to have one.
+ */
 export function withDefaults(partial: Partial<Settings> | null | undefined): Settings {
-  return { ...DEFAULT_SETTINGS, ...(partial ?? {}) };
+  const stored = { ...(partial ?? {}) } as Record<string, unknown>;
+  for (const k of RETIRED_KEYS) delete stored[k];
+  return { ...DEFAULT_SETTINGS, ...(stored as Partial<Settings>) };
 }
 
 /** Inclusive integer range permitted for a numeric setting. */
@@ -78,6 +114,9 @@ const NUMERIC_DOMAINS: Partial<Record<keyof Settings, NumericDomain>> = {
   lunchDeductMin: { min: 0, max: 1440, label: "lunch deduction" },
   lunchThresholdMin: { min: 0, max: 1440, label: "lunch threshold" },
   privateLeaveThresholdSec: { min: 0, max: 86400, label: "private-leave threshold" },
+  // Floor of 5 s so a return to work still requires deliberate input; ceiling of
+  // an hour because beyond that a genuine return would never be confirmed.
+  minActivitySec: { min: 5, max: 3600, label: "activity confirmation threshold" },
 };
 
 /**
@@ -98,6 +137,10 @@ export function normalizeSettingsPatch(
   current: Settings,
 ): Partial<Settings> {
   const out: Partial<Settings> = { ...patch };
+
+  // Protocol timing is a backend constant. Silently dropping an attempt to set
+  // it keeps the write itself valid — the caller simply cannot move the value.
+  for (const k of RETIRED_KEYS) delete (out as Record<string, unknown>)[k];
 
   if (out.timezone !== undefined) {
     if (typeof out.timezone !== "string" || out.timezone === "") {

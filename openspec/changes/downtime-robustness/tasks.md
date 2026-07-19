@@ -51,22 +51,22 @@
 
 ## 5. Backend: the repair path (dirty-marking widens)
 
-- [ ] 5.1 In `ingest` (`backend/src/tenant-do.ts:143-154`), detect when an arriving event closes or shortens a machine's open span, and mark every day from the span's start day through the previously-assumed end day.
-- [ ] 5.2 Keep single-day marking for events that do not change a span's extent, so ordinary ingest does not re-seal the whole window.
-- [ ] 5.3 Test: a late `idle` for Friday marks Friday, Saturday and Sunday dirty; an ordinary mid-day event marks only its own day.
-- [ ] 5.4 Test the outage round-trip end to end: a day reads low while events are buffered, and returns to the correct total once they are flushed — no working time lost. This is the scenario that justifies the bound being provisional.
+- [x] 5.1 In `ingest` (`backend/src/tenant-do.ts:143-154`), detect when an arriving event closes or shortens a machine's open span, and mark every day from the span's start day through the previously-assumed end day.
+- [x] 5.2 Keep single-day marking for events that do not change a span's extent, so ordinary ingest does not re-seal the whole window.
+- ~~5.3 Test: a late `idle` for Friday marks Friday, Saturday and Sunday dirty; an ordinary mid-day event marks only its own day.~~ **Dropped**, same blocker as 2.5: exercising `ingest` requires instantiating `TenantDO`, which extends `DurableObject` from `cloudflare:workers` and needs the Workers vitest pool this project does not have. Covered instead at e2e (9.3), where the round-trip is observable over HTTP.
+- [ ] 5.4 Cover the outage round-trip at e2e rather than unit level — see 9.3.
 
 ## 6. Cost: keep the free tier structurally safe
 
-- [ ] 6.1 Verify the current Cloudflare free-tier Durable Objects figures (rows written/day, rows read/day, storage) against the live docs rather than a remembered number, and record them in the design's cost section with the date checked.
-- [ ] 6.2 Remove `heartbeatSec` **and** `minInactivitySec` from the per-account `Settings` interface and `DEFAULT_SETTINGS` (`backend/src/worktime/settings.ts`), replacing both with backend constants — protocol and cost timing, not preferences, and unsettable beats validated. `minInactivitySec` doubles as this design's downtime threshold (decisions 5–6), which must not vary per account.
-- [ ] 6.3 Keep `minActivitySec` configurable — a fixed inactivity threshold already caps transition frequency, so it cannot drive write volume alone — and add it to `normalizeSettingsPatch` with a sane domain, since it is unvalidated today.
-- [ ] 6.4 Keep `/config` (`index.ts:115-119`) serving all three: the two constants plus the stored `minActivitySec`, so the daemon still has one source of truth and the sides cannot drift.
-- [ ] 6.5 Point the backend's own uses at the constants: `GRACE` in `pairSpans` (task 3.2) and the liveness window in `getStatus` (`tenant-do.ts:318`).
-- [ ] 6.6 Handle stored settings that already carry the removed keys — `withDefaults` merges stored JSON over defaults, so confirm a stale stored `heartbeatSec`/`minInactivitySec` cannot resurrect a per-account value once the fields are gone.
-- [ ] 6.7 Test: a settings write attempting to set either constant leaves stored settings and the `/config` response unchanged; a valid `minActivitySec` write is persisted and served, and an out-of-domain one is rejected.
+- [x] 6.1 Verify the current Cloudflare free-tier Durable Objects figures (rows written/day, rows read/day, storage) against the live docs rather than a remembered number, and record them in the design's cost section with the date checked.
+- [x] 6.2 Remove `heartbeatSec` **and** `minInactivitySec` from the per-account `Settings` interface and `DEFAULT_SETTINGS` (`backend/src/worktime/settings.ts`), replacing both with backend constants — protocol and cost timing, not preferences, and unsettable beats validated. `minInactivitySec` doubles as this design's downtime threshold (decisions 5–6), which must not vary per account.
+- [x] 6.3 Keep `minActivitySec` configurable — a fixed inactivity threshold already caps transition frequency, so it cannot drive write volume alone — and add it to `normalizeSettingsPatch` with a sane domain, since it is unvalidated today.
+- [x] 6.4 Keep `/config` (`index.ts:115-119`) serving all three: the two constants plus the stored `minActivitySec`, so the daemon still has one source of truth and the sides cannot drift.
+- [x] 6.5 Point the backend's own uses at the constants: `GRACE` in `pairSpans` (task 3.2) and the liveness window in `getStatus` (`tenant-do.ts:318`).
+- [x] 6.6 Handle stored settings that already carry the removed keys — `withDefaults` merges stored JSON over defaults, so confirm a stale stored `heartbeatSec`/`minInactivitySec` cannot resurrect a per-account value once the fields are gone.
+- [x] 6.7 Test: a settings write attempting to set either constant leaves stored settings and the `/config` response unchanged; a valid `minActivitySec` write is persisted and served, and an out-of-domain one is rejected.
 - [ ] 6.8 After `settings-form-controls` is archived, correct the `web-ui` "Settings screen" requirement — "the daemon thresholds" now denotes only `minActivitySec`. Sequenced deliberately: both changes modify that requirement, and competing deltas would clash.
-- [ ] 6.7 Measure actual row writes for one simulated 8-hour day against the local stack and confirm the ~1,000/day figure the design claims — if it is materially higher, the ratio argument needs revisiting before this ships.
+- [x] 6.7 Measure actual row writes for one simulated 8-hour day against the local stack and confirm the ~1,000/day figure the design claims — if it is materially higher, the ratio argument needs revisiting before this ships.
 
 ## 7. UI: provisional periods read as "last known", not as measured
 
@@ -88,6 +88,7 @@
 
 - [ ] 9.1 Add a fixtures scenario for a machine that goes quiet mid-span (active + heartbeats, then nothing) and assert the oracle bounds it at the last heartbeat rather than filling to now.
 - [ ] 9.2 Extend it across a day boundary to lock in that the bleed into following days is gone — the regression that would hurt most if it returned.
+- [ ] 9.3 Cover the repair path (from 5.3/5.4, which cannot be unit-tested without a Workers vitest pool): ingest an open span, observe the bounded total, then deliver the late `idle` and assert every affected day — not just the day the idle landed on — returns to the correct total.
 
 ## 10. Power and shutdown handlers (sequenced last — optimisation only)
 

@@ -5,6 +5,7 @@
 import type { EventKind } from "../schema";
 import { clamp, duration, gaps, mergeIntervals, subtract, totalDuration } from "./interval";
 import type { Interval, Period, PeriodType, Provenance, Span } from "./interval";
+import { DAEMON_PROTOCOL } from "./settings";
 import type { Settings } from "./settings";
 import { localDayStart, minuteOfDay, addLocalDays } from "./time";
 
@@ -69,8 +70,8 @@ export interface DayResult {
  * cover a network outage — no finite grace can, since outages are unbounded —
  * that case is handled by recompute when the buffered events arrive.
  */
-export function graceMs(s: Settings): number {
-  return 3 * s.heartbeatSec * 1000;
+export function graceMs(): number {
+  return 3 * DAEMON_PROTOCOL.heartbeatSec * 1000;
 }
 
 const PRESENCE: ReadonlySet<EventKind> = new Set<EventKind>([
@@ -84,6 +85,11 @@ const ABSENCE: ReadonlySet<EventKind> = new Set<EventKind>([
   "lock",
   "logout",
 ]);
+
+/** Does this event kind prove the machine was alive (and open a span)? */
+export function isPresence(kind: EventKind): boolean {
+  return PRESENCE.has(kind);
+}
 
 /** A span whose end was inferred from the bound rather than observed. */
 export interface ProvisionalSpan extends Interval {
@@ -358,7 +364,7 @@ export function computeWeek(
   s: Settings,
   checkTime: number,
 ): WeekResult {
-  const { active, provisional } = pairSpans(events, checkTime, graceMs(s));
+  const { active, provisional } = pairSpans(events, checkTime, graceMs());
   const days: DayResult[] = [];
   let cursor = localDayStart(weekStart, s.timezone);
   for (let i = 0; i < 7; i++) {

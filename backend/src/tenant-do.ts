@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env";
-import type { EventBatch } from "./schema";
+import type { EventBatch, EventKind } from "./schema";
 import { withDefaults, normalizeSettingsPatch } from "./worktime/settings";
 import type { Settings } from "./worktime/settings";
 import { localDayStart, localWeekStart, addLocalDays, weekdayMon0 } from "./worktime/time";
@@ -8,6 +8,7 @@ import {
   computeDay,
   computeWeek,
   graceMs,
+  isPresence,
   pairSpans,
   type Correction,
   type CorrectionKind,
@@ -138,8 +139,15 @@ export class TenantDO extends DurableObject<Env> {
     if (seen.length > 0) return { duplicate: true };
 
     const now = Date.now();
-    const tz = this.getSettings().timezone;
+    const s = this.getSettings();
+    const tz = s.timezone;
     this.upsertMachine(machineId, batch, now);
+
+    // How far this machine's open span was assumed to reach BEFORE this batch.
+    // A late-arriving event changes that extent, and because the bound can push
+    // an assumed end past midnight, the days needing recomputation are not
+    // always the days the batch itself mentions. Read it before inserting.
+    const priorEnd = this.assumedOpenEnd(machineId);
 
     const dirtyDays = new Set<number>();
     for (const e of batch.events) {
@@ -152,6 +160,19 @@ export class TenantDO extends DurableObject<Env> {
       );
       dirtyDays.add(localDayStart(e.ts, tz));
     }
+
+    // Widen to every day the span covered under either interpretation. Marking
+    // only each event's own day would re-seal the day the idle landed on and
+    // leave the inflated days beyond it sealed and wrong — the correction would
+    // be invisible exactly where the error was.
+    const newEnd = this.assumedOpenEnd(machineId);
+    const spanEnd = Math.max(priorEnd ?? 0, newEnd ?? 0);
+    if (spanEnd > 0 && dirtyDays.size > 0) {
+      const from = Math.min(...dirtyDays);
+      for (let d = from; d <= localDayStart(spanEnd, tz); d = addLocalDays(d, 1, tz)) {
+        dirtyDays.add(d);
+      }
+    }
     for (const d of dirtyDays) this.markDirty(d);
 
     this.sql.exec(
@@ -161,6 +182,26 @@ export class TenantDO extends DurableObject<Env> {
     );
     this.ensureAlarm();
     return { duplicate: false };
+  }
+
+  /**
+   * How far this machine's open span is assumed to reach, or null when its span
+   * is closed. Only the machine's most recent event matters: if it is a
+   * presence event the span is open, and that event is by definition its latest
+   * liveness evidence, so the assumed end is that timestamp plus the grace.
+   *
+   * Deliberately not capped at `now` — the wider value is what dirty-marking
+   * needs, and one indexed lookup keeps this cheap enough to run per ingest.
+   */
+  private assumedOpenEnd(machineId: string): number | null {
+    const last = this.sql
+      .exec(
+        "SELECT ts, kind FROM event WHERE machine_id = ? ORDER BY ts DESC LIMIT 1",
+        machineId,
+      )
+      .toArray()[0] as { ts: number; kind: EventKind } | undefined;
+    if (!last || !isPresence(last.kind)) return null;
+    return last.ts + graceMs();
   }
 
   private upsertMachine(machineId: string, batch: EventBatch, now: number): void {
@@ -314,7 +355,7 @@ export class TenantDO extends DurableObject<Env> {
 
     const s = this.getSettings();
     const recent = this.loadEvents(now - 2 * DAY_MS, now + DAY_MS);
-    const { active: spans, provisional } = pairSpans(recent, now, graceMs(s));
+    const { active: spans, provisional } = pairSpans(recent, now, graceMs());
     const openStart = spans.length > 0 ? spans[spans.length - 1]! : null;
     // "Active now" is exactly "the open span is still growing" — the machine
     // has been seen within the liveness window. pairSpans already computes that
@@ -398,7 +439,7 @@ export class TenantDO extends DurableObject<Env> {
   private sealDay(dayStart: number, s: Settings, now: number): void {
     const dayEnd = addLocalDays(dayStart, 1, s.timezone);
     const events = this.loadEvents(dayStart - DAY_MS, dayEnd + DAY_MS);
-    const { active, provisional } = pairSpans(events, now, graceMs(s));
+    const { active, provisional } = pairSpans(events, now, graceMs());
     const day = computeDay(
       active,
       this.loadCorrections(dayStart, dayEnd),

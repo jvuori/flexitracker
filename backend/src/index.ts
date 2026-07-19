@@ -25,6 +25,7 @@ import {
   type AccountStatus,
 } from "./registry";
 import { isAdmin, requireIdentity, UnauthorizedError, type Identity } from "./identity";
+import { DAEMON_PROTOCOL } from "./worktime/settings";
 import type { Settings } from "./worktime/settings";
 import { notifyAdmin } from "./mail";
 import { renderApp } from "./ui/render";
@@ -112,10 +113,14 @@ app.get("/config", async (c) => {
   const resolved = key ? await resolveKey(c.env.REGISTRY, key) : null;
   if (!resolved) return c.json({ error: "invalid access key" }, 401);
   const s = await tenant(c.env, resolved.account_id).getSettings();
+  // Two of the three are backend constants, not account state: they drive
+  // ingest write volume and (for the inactivity threshold) the boundary between
+  // downtime that is absorbed and downtime that is reconciled. They are still
+  // served here so the daemon reads one source of truth and cannot drift.
   return c.json({
-    minInactivitySec: s.minInactivitySec,
+    minInactivitySec: DAEMON_PROTOCOL.minInactivitySec,
     minActivitySec: s.minActivitySec,
-    heartbeatSec: s.heartbeatSec,
+    heartbeatSec: DAEMON_PROTOCOL.heartbeatSec,
   });
 });
 

@@ -3,7 +3,9 @@ import {
   DEFAULT_SETTINGS,
   normalizeSettingsPatch,
   normalizeWorkingWeekdays,
+  withDefaults,
 } from "../src/worktime/settings";
+import type { Settings } from "../src/worktime/settings";
 
 describe("normalizeWorkingWeekdays", () => {
   it("accepts a valid Mon–Fri set", () => {
@@ -171,6 +173,30 @@ describe("normalizeSettingsPatch", () => {
       expect(() => normalizeSettingsPatch({ weeklyNormMin: 3000 }, cur)).not.toThrow();
       expect(() => normalizeSettingsPatch({ lunchThresholdMin: 400 }, cur)).not.toThrow();
     });
+  });
+
+  // Protocol timing is a backend constant, not account state: it drives ingest
+  // write volume, and the inactivity threshold also fixes the boundary between
+  // downtime that is absorbed and downtime that is reconciled.
+  it("ignores an attempt to set retired protocol timing", () => {
+    const patch = { heartbeatSec: 1, minInactivitySec: 5 } as unknown as Partial<Settings>;
+    expect(normalizeSettingsPatch(patch, cur)).toEqual({});
+  });
+
+  it("does not resurrect a retired key stored before it became a constant", () => {
+    // withDefaults spreads stored JSON over the defaults, so an old row still
+    // carrying heartbeatSec would otherwise reinstate a per-account value.
+    const stored = { heartbeatSec: 1, minInactivitySec: 5, dailyNormMin: 480 };
+    const merged = withDefaults(stored as Partial<Settings>) as unknown as Record<string, unknown>;
+    expect(merged.heartbeatSec).toBeUndefined();
+    expect(merged.minInactivitySec).toBeUndefined();
+    expect(merged.dailyNormMin).toBe(480); // real settings still merge
+  });
+
+  it("keeps the activity-confirmation threshold settable and validated", () => {
+    expect(normalizeSettingsPatch({ minActivitySec: 45 }, cur).minActivitySec).toBe(45);
+    expect(() => normalizeSettingsPatch({ minActivitySec: 0 }, cur)).toThrow();
+    expect(() => normalizeSettingsPatch({ minActivitySec: 99999 }, cur)).toThrow();
   });
 
   it("names both operands and their effective values when a pair is rejected", () => {
