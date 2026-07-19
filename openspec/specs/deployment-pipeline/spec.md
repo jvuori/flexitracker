@@ -71,19 +71,19 @@ certificate provisioned and renewed by Cloudflare from version-controlled config
 - **WHEN** the PROD `*.workers.dev` hostname is requested
 - **THEN** it does not serve the application
 
-### Requirement: Daemon releases are published from version tags
-Pushing a `v*` tag SHALL build the daemon for the supported targets and publish
-the artifacts to a GitHub Release under stable asset names, gated on unit tests,
-with the tag verified to match the workspace version. The release build SHALL bake
-in the PROD backend URL so an end user supplies only an access key.
-
-#### Scenario: Tag produces installable artifacts
-- **WHEN** a `v*` tag is pushed and unit tests pass
-- **THEN** per-OS artifacts are published to a GitHub Release under stable, durable download names
+### Requirement: Release tag matches the workspace version
+The release workflow SHALL verify that the pushed tag matches the daemon workspace
+version and fail before building otherwise, so the tag, `--version`, and the
+published assets can never drift. The release build SHALL bake in the PROD backend
+URL so an end user supplies only an access key.
 
 #### Scenario: Tag/version mismatch fails the release
 - **WHEN** the tag does not match the workspace version
 - **THEN** the release fails before building
+
+#### Scenario: Backend URL is built in
+- **WHEN** a released binary is run without an explicit backend override
+- **THEN** it targets the PROD backend, so the user supplies only an access key
 
 ### Requirement: Retired resources are decommissioned by a guarded script
 Cloudflare resources orphaned by a rename SHALL be removed by a version-controlled
@@ -122,4 +122,23 @@ Both environments and all CI SHALL remain within free-tier limits, and deploymen
 #### Scenario: Within free tier
 - **WHEN** both QA and PROD operate
 - **THEN** combined usage stays within Cloudflare free-tier limits
+
+### Requirement: Tagged daemon release build and publish
+A version-controlled GitHub Actions workflow SHALL, on a release tag, build the daemon for Windows (x86_64) and Linux (x86_64), and publish the resulting artifacts to a GitHub Release under stable asset names, so users can download them from durable public URLs. The release job SHALL be gated on the unit tests passing and SHALL run only from a tag, not on every push. It SHALL remain within free-tier CI (public-repo GitHub Actions) and MUST NOT introduce paid code-signing.
+
+#### Scenario: Tag produces cross-platform artifacts
+- **WHEN** a release tag is pushed and unit tests pass
+- **THEN** the workflow builds Windows and Linux binaries and attaches them to a GitHub Release
+
+#### Scenario: Stable download URLs
+- **WHEN** the release is published
+- **THEN** each platform's artifact is reachable at a stable `releases/latest/download/<asset>` URL for the web app and docs to link
+
+#### Scenario: Failing tests block a release
+- **WHEN** unit tests fail on the tagged commit
+- **THEN** no release artifacts are built or published
+
+#### Scenario: Release only from a tag
+- **WHEN** a commit is pushed without a release tag
+- **THEN** the release workflow does not run and no artifacts are published
 

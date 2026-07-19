@@ -97,11 +97,19 @@ The expanded lane SHALL also provide a single **Mark whole day as work** action 
 - **THEN** that period is rendered as a distinct "excluded" band, visually separable from empty inactivity
 
 ### Requirement: Settings screen
-The UI SHALL let the user edit account settings: timezone, working days, daily and weekly norms, lunch deduction and its threshold, and the daemon thresholds.
+The UI SHALL let the user edit account settings: timezone, working days, daily and weekly norms, lunch deduction and its threshold, and the daemon thresholds. The working-days control SHALL present the seven weekdays (Monday through Sunday) as an independently selectable set, default Monday–Friday, and SHALL persist the selection as the account's working days. A weekday left unselected is a non-working day.
 
 #### Scenario: Setting saved and applied
 - **WHEN** the user changes a setting and saves
 - **THEN** the value is persisted and applied to subsequent calculations and daemon config fetches
+
+#### Scenario: Working days editable
+- **WHEN** the user opens the Settings view
+- **THEN** the seven weekdays are shown as an editable set with the account's current working days selected (Monday–Friday by default)
+
+#### Scenario: Working days saved and applied to balances
+- **WHEN** the user selects a different set of working days and saves
+- **THEN** the selection is persisted and each day's norm and balance are recomputed accordingly on the next week view
 
 ### Requirement: Timeline scale and ruler
 Every day timeline SHALL span a fixed full-day 0–24h scale in the account timezone and SHALL render a time ruler with tick marks at three levels — hour (most prominent), half-hour, and quarter-hour — together with hour numbers labelling 0 through 24. The fixed scale ensures activity outside normal working hours (early morning, late evening, weekend) is always visible rather than clipped.
@@ -113,4 +121,94 @@ Every day timeline SHALL span a fixed full-day 0–24h scale in the account time
 #### Scenario: Out-of-hours activity remains visible
 - **WHEN** a day contains activity before the configured workday start or after its end (e.g. a span starting shortly after midnight)
 - **THEN** that activity is still drawn on the 0–24h lane and is not clipped out of view
+
+### Requirement: OS-detected daemon onboarding
+For an approved (`active`) user, the web UI SHALL present a daemon onboarding surface that detects the visitor's operating system and offers the matching download (Windows or Linux) from the published release, alongside the exact `configure` command with the freshly issued access key pre-filled and the `test` command to verify connectivity. It SHALL link to per-OS auto-start instructions, including the trust step for the unsigned binary. The overall flow presented SHALL be: get approved, download, configure, test, auto-start.
+
+#### Scenario: Download matches the visitor's OS
+- **WHEN** an active user opens the machine onboarding surface
+- **THEN** the download offered defaults to their detected OS, with the other platforms available
+
+#### Scenario: Exact commands with the key
+- **WHEN** a user adds a machine
+- **THEN** the UI shows the ready-to-run `configure --key <key>` command and the `test` command, with the key copyable
+
+#### Scenario: Verify guidance references no-data test
+- **WHEN** a user follows the onboarding
+- **THEN** they are directed to run `test` to confirm connectivity and account binding before any activity data is sent
+
+### Requirement: Registration and pending-state experience
+The web UI SHALL render according to the signed-in account's approval status rather than assuming full capability. A `pending` account that has not yet requested access SHALL be shown a *Request access* form (with an optional note); after submitting, and while awaiting a decision, it SHALL be shown a "waiting for approval" state. A `rejected` or `disabled` account SHALL be shown the corresponding state message. Only an `active` account SHALL render the full application (week view, machines, settings, admin).
+
+#### Scenario: New user sees the request form
+- **WHEN** a `pending` user who has not requested access opens the app
+- **THEN** they see a *Request access* form instead of the app, and submitting it shows an on-screen confirmation
+
+#### Scenario: Awaiting approval
+- **WHEN** a `pending` user who has already requested access opens the app
+- **THEN** they see a "waiting for approval" message and no user data
+
+#### Scenario: Rejected or disabled state
+- **WHEN** a `rejected` or `disabled` user opens the app
+- **THEN** they see the corresponding state message and no user data or machine controls
+
+#### Scenario: Active user sees the app
+- **WHEN** an `active` user opens the app
+- **THEN** the full application is rendered as before
+
+### Requirement: Mark a day as holiday
+The expanded day lane SHALL offer a day-level action to mark the whole day as a holiday and, when it is already a holiday, to clear it. This action is distinct from the per-period Count/Exclude actions: it targets the day, not a selected period. A day that is a holiday SHALL be visibly indicated as such on its lane, and its balance SHALL be presented consistently with a zero-norm day (a credit when work was done, neutral otherwise).
+
+#### Scenario: Mark and clear from the day lane
+- **WHEN** the user opens a day and chooses "Mark as holiday"
+- **THEN** the day is recorded as a holiday, the lane shows a holiday indicator, and the action toggles to "Clear holiday"
+
+#### Scenario: Holiday day balance reads as a zero-norm day
+- **WHEN** a holiday day is shown with no working time
+- **THEN** its lane does not show a norm deficit, consistent with a day that carries no norm
+
+#### Scenario: Worked holiday shows its credit
+- **WHEN** a holiday day has working time
+- **THEN** its lane shows the positive credit for that worked time
+
+### Requirement: Signed balance presentation
+Balances SHALL be presented with an explicit sign so a surplus and a deficit are distinguishable at a glance: a positive balance SHALL be prefixed with `+` and a negative balance SHALL be prefixed with `-`. This signing SHALL apply to daily and weekly balances only; plain durations such as worked time, lunch deducted, and norms SHALL NOT be signed. A non-working day that has working time SHALL display its positive credit (e.g. `+3h 00m`) rather than an inert placeholder; a non-working day with no working time MAY display a neutral placeholder.
+
+#### Scenario: Positive balance carries a plus sign
+- **WHEN** a daily or weekly balance is a surplus
+- **THEN** it is shown with a leading `+` (e.g. `+2h 30m`)
+
+#### Scenario: Negative balance carries a minus sign
+- **WHEN** a daily or weekly balance is a deficit
+- **THEN** it is shown with a leading `-` (e.g. `-1h 15m`)
+
+#### Scenario: Durations are not signed
+- **WHEN** worked time, lunch deducted, or a norm is shown
+- **THEN** no `+` or `-` sign is prefixed to it
+
+#### Scenario: Non-working day shows its credit
+- **WHEN** a non-working day has working time
+- **THEN** its lane shows the positive balance credit (e.g. `+3h 00m`) instead of a placeholder
+
+### Requirement: Non-working days visually distinct
+A day whose weekday is not a working day SHALL be visually distinguished from working days in the week view, so the user can tell at a glance which lanes carry no norm. The distinction SHALL be a quiet, recessive treatment (working days remain the primary surface; non-working days recede) and SHALL remain legible in both light and dark themes without obscuring the timeline. The distinction SHALL NOT rely on colour alone.
+
+#### Scenario: Non-working day lane looks different
+- **WHEN** the week view is rendered
+- **THEN** non-working-day lanes are visually distinct from working-day lanes (e.g. a recessed background tint plus a muted label), legible in light and dark themes
+
+#### Scenario: Distinction survives without colour
+- **WHEN** the distinction is perceived without colour (e.g. greyscale or colour-blind viewing)
+- **THEN** non-working days remain identifiable by a non-colour cue such as a label or border treatment
+
+### Requirement: Per-day lunch deduction visible
+When a day has a lunch deduction applied, that day's lane SHALL show the deducted amount, so the user can see why the day's worked time is below its gross time. A day with no lunch deduction SHALL NOT show a lunch figure. The lunch amount and the day-length threshold that triggers it remain the existing configurable settings; this requirement only concerns surfacing the per-day result.
+
+#### Scenario: Day with lunch shows the deduction
+- **WHEN** a day's gross working time exceeds the lunch threshold and a lunch deduction is applied
+- **THEN** that day's lane shows the deducted lunch amount (e.g. `lunch −30m`)
+
+#### Scenario: Day without lunch shows none
+- **WHEN** a day's gross working time is at or below the lunch threshold and no lunch is deducted
+- **THEN** that day's lane shows no lunch figure
 
