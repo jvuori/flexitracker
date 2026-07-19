@@ -44,5 +44,5 @@
 ## 8. Verify
 
 - [x] 8.1 `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test` all green; backend typecheck + 60 tests green; `e2e/smoke.mjs` ALL PASS. Drove `configure`/`test` against a live local backend: printed account + machine, exit 0; bad key → 401 exit 1; confirmed no activity data written.
-- [~] 8.2 Cutting a real tag to confirm `release.yml` produces artifacts requires GitHub Actions runners — not runnable locally. Workflow is valid YAML and the steps are standard; will be exercised on the first `vX.Y.Z` tag push. **Needs `PROD_BASE_URL` repo variable set for the baked-in URL, and the repo public for the download links.**
+- [x] 8.2 Verified: tag `v0.1.0` ran `release.yml` green (version gate matched `Cargo.toml`), producing all three assets under stable names — `flexitracker-linux-x86_64.tar.gz`, `flexitracker-windows-x86_64.zip`, `flexitracker-setup.exe` — with `PROD_BASE_URL` baked in. NOTE: `releases/latest/download/...` still 404s for users while the repo is **private**; the download links require making it public.
 - [~] 8.3 Full Windows install/auto-start round-trip requires a Windows machine — not runnable here. The `configure`/`test`/`/whoami` path (the load-bearing logic) is verified on Linux; the Windows packaging is standard schtasks + Inno.
