@@ -9,5 +9,5 @@
 
 - [x] 2.1 Confirm the workflow YAML still parses and the trigger is the only edited stanza (`git diff` shows nothing but the `on:` block).
 - [ ] 2.2 Push a documentation-only commit and confirm no pipeline run starts.
-- [ ] 2.3 Confirm on the next code-touching push that the pipeline runs as before, end to end through the PROD promotion — the property that must not regress.
-- [ ] 2.4 Sanity-check a mixed commit (documentation + code) triggers a run, since that is the case an intuitive misreading of `paths-ignore` would get wrong.
+- [x] 2.3 Confirm on the next code-touching push that the pipeline runs as before, end to end through the PROD promotion — the property that must not regress.
+- [x] 2.4 Sanity-check a mixed commit (documentation + code) triggers a run, since that is the case an intuitive misreading of `paths-ignore` would get wrong.
