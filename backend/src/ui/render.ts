@@ -1,4 +1,5 @@
 import type { Identity } from "../identity";
+import { TIME_HELPERS_SRC } from "./client-helpers";
 
 /**
  * Node-free UI: a single self-contained HTML page with inline CSS (responsive,
@@ -148,6 +149,23 @@ input,select{background:var(--bg);color:var(--fg);border:1px solid var(--line);b
 label{display:block;margin:.4rem 0 .15rem;font-size:.85rem}
 .wdays{display:flex;flex-wrap:wrap;gap:.4rem;margin:.15rem 0 .35rem}
 .wd{display:inline-flex;align-items:center;gap:.3rem;margin:0;font-size:.85rem;padding:.3rem .55rem;border:1px solid var(--line);border-radius:6px;cursor:pointer;user-select:none}
+/* Settings sections: a heading plus a one-line statement of what it governs. */
+.sec{margin:0;font-size:.95rem}
+.sechelp{margin:.2rem 0 .6rem;color:var(--muted);font-size:.8rem;line-height:1.4}
+.fieldhint{margin:.25rem 0 0;color:var(--muted);font-size:.75rem;line-height:1.4}
+/* Office-hours range and hours+minutes durations. Inputs are sized in ch so
+   they hold their digits without stretching, and wrap rather than overflow. */
+.range,.dur{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin:.15rem 0 .35rem}
+.range input{min-height:2.25rem}
+.range .sep{color:var(--muted)}
+/* Spinners are suppressed: right-aligned digits slide under them and clip (a
+   weekly norm of 37h read as "3h"). Hours are not clamped to a day, so the box
+   must hold three digits — a weekly norm can reach 168h. */
+.dur input::-webkit-outer-spin-button,.dur input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.dur input{width:4rem;min-height:2.25rem;text-align:right;appearance:textfield;-moz-appearance:textfield}
+.dur .u{color:var(--muted);font-size:.85rem;margin-right:.35rem}
+.savebar{display:flex;flex-direction:column;align-items:flex-start;gap:.5rem;margin:.75rem 0}
+.saveerr{margin:0;color:var(--neg);font-size:.85rem;line-height:1.4}
 code{background:rgba(127,127,127,.15);padding:.15rem .35rem;border-radius:4px;word-break:break-all}
 table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:.35rem;border-bottom:1px solid var(--line);font-size:.85rem}
 .gate{max-width:520px;margin:2.5rem auto;text-align:center}
@@ -186,6 +204,7 @@ function bal(ms){const r=hm(Math.abs(ms));return ms>0?'+'+r:ms<0?'-'+r:r;}
 function round30(ms){return Math.round(ms/1800000)*1800000;}
 function clock(ts){return new Intl.DateTimeFormat('en-GB',{timeZone:TZ,hour:'2-digit',minute:'2-digit'}).format(ts);}
 function el(html){const t=document.createElement('template');t.innerHTML=html.trim();return t.content.firstChild;}
+${TIME_HELPERS_SRC}
 
 const tabs=document.getElementById('tabs');
 tabs.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
@@ -402,29 +421,109 @@ function renderStrip(strip,d,idx){
 // Selection is dropped — the partition changes after any correction.
 async function reload(){selPeriod=null;const [st,wk]=await Promise.all([api('/status'),api('/week?offset='+weekOffset)]);renderWeek(st,wk);}
 
+function opt(value,text){const o=document.createElement('option');o.value=value;o.textContent=text;return o;}
+
+// Settings form. Every control carries its own unit, so no field asks the user
+// to convert into the stored representation (minutes since midnight, minutes,
+// seconds). Each builder registers a reader; the save handler collects from
+// those readers, so there is no key list to keep in step with the render list.
 function renderSettings(s){
  view.innerHTML='<h2>Settings</h2>';
- const tzGuess=Intl.DateTimeFormat().resolvedOptions().timeZone;
- const f=el('<div class="card"></div>');
- const field=(k,label,val,type)=>{f.append(el('<label>'+label+'</label>'));const i=el('<input id="s_'+k+'" type="'+(type||'number')+'" value="'+val+'">');f.append(i);};
- field('timezone','Timezone',s.timezone,'text');
- f.querySelector('#s_timezone').placeholder=tzGuess;
- field('workdayStartMin','Workday start (min from midnight)',s.workdayStartMin);
- field('workdayEndMin','Workday end (min)',s.workdayEndMin);
+ const readers=[];
+
+ // A titled card stating what its settings govern. The split is when-vs-how-much:
+ // office hours decide how activity is interpreted, norms decide what is owed.
+ const section=(title,explain)=>{const c=el('<div class="card"></div>');
+  c.append(el('<h3 class="sec">'+title+'</h3>'));
+  if(explain)c.append(el('<p class="sechelp">'+explain+'</p>'));
+  view.append(c);return c;};
+ const hint=(box,text)=>box.append(el('<p class="fieldhint">'+text+'</p>'));
+
+ // Full IANA list, with UTC and the detected zone lifted into a Suggested group
+ // so the likely answer needs no scrolling. Option values are bare identifiers —
+ // the '(current location)' marking is display text and never reaches the patch.
+ const zoneField=(box,key,label,val)=>{
+  box.append(el('<label>'+label+'</label>'));
+  const sel=document.createElement('select');
+  const here=Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const sug=document.createElement('optgroup');sug.label='Suggested';
+  sug.append(opt('UTC','UTC'));
+  if(here&&here!=='UTC')sug.append(opt(here,here+' (current location)'));
+  sel.append(sug);
+  const all=document.createElement('optgroup');all.label='All timezones';
+  for(const z of Intl.supportedValuesOf('timeZone'))all.append(opt(z,z));
+  sel.append(all);
+  // The account's stored zone, never the detected one: the control must not
+  // display a value the account does not hold. Resolves to the Suggested
+  // duplicate when they match, since value= binds the first matching option.
+  sel.value=val;
+  box.append(sel);
+  readers.push(()=>({[key]:sel.value}));
+ };
+
+ // Office hours as one range — the two bounds are meaningless apart.
+ const timeRangeField=(box,label,startKey,endKey,startVal,endVal)=>{
+  box.append(el('<label>'+label+'</label>'));
+  const row=el('<div class="range"></div>');
+  const a=el('<input type="time">');a.value=minToHHMM(startVal);
+  const b=el('<input type="time">');b.value=minToHHMM(endVal);
+  row.append(a,el('<span class="sep">–</span>'),b);
+  box.append(row);
+  readers.push(()=>({[startKey]:hhmmToMin(a.value),[endKey]:hhmmToMin(b.value)}));
+ };
+
+ // Hours + minutes. Not <input type="time">: a duration is not a time of day
+ // and routinely exceeds 24h (a weekly norm is 37h30m). scale converts to the
+ // stored unit — 1 for the minute fields, 60 for the seconds-stored threshold.
+ const durationField=(box,key,label,val,scale)=>{
+  const sc=scale||1;
+  box.append(el('<label>'+label+'</label>'));
+  const cur=minToHM(val/sc);
+  const row=el('<div class="dur"></div>');
+  const h=el('<input type="number" min="0" inputmode="numeric">');h.value=cur.h;
+  const m=el('<input type="number" min="0" max="59" inputmode="numeric">');m.value=cur.m;
+  row.append(h,el('<span class="u">h</span>'),m,el('<span class="u">m</span>'));
+  box.append(row);
+  readers.push(()=>({[key]:hmToMin(h.value,m.value)*sc}));
+ };
+
  // Working days: seven weekdays (Mon–Sun), default Mon–Fri. Unchecked days are
  // non-working (norm 0, credit-only). Collected into workingWeekdays on save.
- f.append(el('<label>Working days</label>'));
- const wd=el('<div class="wdays"></div>');
- DAYNAMES.forEach((name,i)=>wd.append(el('<label class="wd"><input type="checkbox" id="wd_'+i+'"'+(s.workingWeekdays.includes(i)?' checked':'')+'>'+name+'</label>')));
- f.append(wd);
- field('dailyNormMin','Daily norm (min)',s.dailyNormMin);
- field('weeklyNormMin','Weekly norm (min)',s.weeklyNormMin);
- field('privateLeaveThresholdSec','Private-leave threshold (sec)',s.privateLeaveThresholdSec);
- field('lunchDeductMin','Lunch deduction (min)',s.lunchDeductMin);
- field('lunchThresholdMin','Lunch applies over (min)',s.lunchThresholdMin);
- const save=el('<button class="act" style="margin-top:.75rem">Save</button>');
- save.onclick=async()=>{const patch={};for(const k of ['timezone','workdayStartMin','workdayEndMin','dailyNormMin','weeklyNormMin','privateLeaveThresholdSec','lunchDeductMin','lunchThresholdMin']){const v=document.getElementById('s_'+k).value;patch[k]=k==='timezone'?v:Number(v);}patch.workingWeekdays=DAYNAMES.map((_,i)=>i).filter(i=>document.getElementById('wd_'+i).checked);await api('/settings',{method:'PUT',body:JSON.stringify(patch)});save.textContent='Saved ✓';};
- f.append(save);view.append(f);
+ const weekdayField=(box,label,val)=>{
+  box.append(el('<label>'+label+'</label>'));
+  const wd=el('<div class="wdays"></div>');
+  DAYNAMES.forEach((name,i)=>wd.append(el('<label class="wd"><input type="checkbox" id="wd_'+i+'"'+(val.includes(i)?' checked':'')+'>'+name+'</label>')));
+  box.append(wd);
+  readers.push(()=>({workingWeekdays:DAYNAMES.map((_,i)=>i).filter(i=>document.getElementById('wd_'+i).checked)}));
+ };
+
+ const gen=section('General','');
+ zoneField(gen,'timezone','Timezone',s.timezone);
+
+ const off=section('Office hours','When you are normally at work. Used to decide how gaps and activity are interpreted — not how much you are expected to work.');
+ timeRangeField(off,'Office hours','workdayStartMin','workdayEndMin',s.workdayStartMin,s.workdayEndMin);
+ durationField(off,'privateLeaveThresholdSec','Private-leave threshold',s.privateLeaveThresholdSec,60);
+ hint(off,'Gaps inside office hours at or above this count as private leave instead of being bridged.');
+
+ const norms=section('Norms','How much work is expected, and what is deducted from it.');
+ weekdayField(norms,'Working days',s.workingWeekdays);
+ durationField(norms,'dailyNormMin','Daily norm',s.dailyNormMin,1);
+ durationField(norms,'weeklyNormMin','Weekly norm',s.weeklyNormMin,1);
+ durationField(norms,'lunchDeductMin','Lunch deduction',s.lunchDeductMin,1);
+ durationField(norms,'lunchThresholdMin','Lunch applies over',s.lunchThresholdMin,1);
+
+ const foot=el('<div class="savebar"></div>');
+ const save=el('<button class="act">Save</button>');
+ const err=el('<p class="saveerr" hidden></p>');
+ // The server rejects an incoherent combination fail-fast; show why, or a
+ // rejected save would look like nothing happened.
+ save.onclick=async()=>{
+  const patch=Object.assign({},...readers.map(r=>r()));
+  err.hidden=true;save.textContent='Saving…';
+  try{await api('/settings',{method:'PUT',body:JSON.stringify(patch)});save.textContent='Saved ✓';}
+  catch(e){save.textContent='Save';err.textContent=e.message;err.hidden=false;}
+ };
+ foot.append(save,err);view.append(foot);
 }
 
 // Build the OS-detected setup instructions for a freshly issued key: download,

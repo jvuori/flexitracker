@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env";
 import type { EventBatch } from "./schema";
-import { withDefaults, normalizeWorkingWeekdays } from "./worktime/settings";
+import { withDefaults, normalizeSettingsPatch } from "./worktime/settings";
 import type { Settings } from "./worktime/settings";
 import { localDayStart, localWeekStart, addLocalDays, weekdayMon0 } from "./worktime/time";
 import {
@@ -109,10 +109,11 @@ export class TenantDO extends DurableObject<Env> {
   }
 
   putSettings(patch: Partial<Settings>): Settings {
-    if (patch.workingWeekdays !== undefined) {
-      patch = { ...patch, workingWeekdays: normalizeWorkingWeekdays(patch.workingWeekdays) };
-    }
-    const merged = { ...this.getSettings(), ...patch };
+    const current = this.getSettings();
+    // Validate before the merge and before markAllDaysDirty(): a rejected write
+    // must leave settings untouched and mark nothing dirty.
+    const clean = normalizeSettingsPatch(patch, current);
+    const merged = { ...current, ...clean };
     this.sql.exec(
       "INSERT INTO meta (k, v) VALUES ('settings', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v",
       JSON.stringify(merged),

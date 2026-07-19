@@ -188,7 +188,12 @@ api.get("/settings", async (c) => c.json(await tenant(c.env, c.get("accountId"))
 
 api.put("/settings", async (c) => {
   const patch = (await c.req.json()) as Partial<Settings>;
-  return c.json(await tenant(c.env, c.get("accountId")).putSettings(patch));
+  try {
+    return c.json(await tenant(c.env, c.get("accountId")).putSettings(patch));
+  } catch (e) {
+    // Settings validation rejects the write fail-fast; that is a client error.
+    return c.json({ error: (e as Error).message }, 400);
+  }
 });
 
 api.post("/corrections", async (c) => {
