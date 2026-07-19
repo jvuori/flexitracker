@@ -28,6 +28,32 @@ The authenticated UI SHALL mint a new per-machine access key on request and pres
 - **WHEN** a user revokes a machine's key
 - **THEN** that key stops resolving while other machines' keys continue to work
 
+### Requirement: Read-only connectivity self-test for a machine key
+The system SHALL expose a read-only, access-key-authenticated endpoint that echoes
+the bound account and machine (and the account's status) so a daemon can prove its
+key works **without emitting any activity data or mutating state**. An unknown or
+revoked key SHALL be rejected. Being a non-browser path, it SHALL bypass the
+interactive login so it returns JSON rather than a login page.
+
+#### Scenario: Valid key echoes its binding
+- **WHEN** the self-test endpoint is called with a valid access key
+- **THEN** it returns the bound account email, machine label, and account status, and writes nothing
+
+#### Scenario: Bad key is rejected
+- **WHEN** the self-test endpoint is called with an unknown or revoked key
+- **THEN** it returns 401
+
+### Requirement: Non-interactive CI authentication uses a Service Auth policy
+Where automation must reach identity-authenticated routes non-interactively, the
+Access application SHALL authorize it with a dedicated **Service Auth** policy
+(decision `non_identity`) for the service token. A plain `allow` policy — even one
+including the service token — SHALL NOT be relied on, because it still forces
+interactive authentication and returns the login page to the caller.
+
+#### Scenario: CI reaches authed routes without a browser
+- **WHEN** CI calls an identity-authenticated route with a valid service token
+- **THEN** Access admits the request and the app resolves an identity from it, rather than serving a login page
+
 ### Requirement: Global registry separate from tenant data
 The system SHALL maintain a small global registry (mapping `google_sub → account_id` and `access_key → (account_id, machine_id)`) stored outside the per-tenant Durable Objects.
 

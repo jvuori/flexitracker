@@ -31,20 +31,50 @@ This project MUST never incur any charge — not now, not after any trial or 12-
   rolling back by dispatching an older ref).
 - The pipeline **queues** rather than cancels (`cancel-in-progress: false`) so a
   rapid second push can never cancel an in-flight PROD deploy.
+- **PROD is `https://flexitracker.vuorinet.net`** — the only entrypoint
+  (`workers_dev = false`). QA is `https://flexitracker-qa.jaakko-vuori.workers.dev`.
+  Both are stored as the `PROD_BASE_URL` / `QA_BASE_URL` repo variables; the QA
+  e2e reads `QA_BASE_URL`, and `release.yml` bakes `PROD_BASE_URL` into the daemon.
+  **Renaming a Worker changes its hostname**, which invalidates its Access app +
+  `ACCESS_AUD` and the `*_BASE_URL` variable — re-provision and update both.
+- **TLS is Cloudflare-managed — there is no certbot here.** The
+  `[[env.prod.routes]] custom_domain = true` entry makes Cloudflare create the DNS
+  record *and* provision/auto-renew the edge certificate on deploy. The Worker *is*
+  the edge, so there is no origin server, no private key to hold, no renewal timer,
+  and no origin certificate / SSL-mode to configure.
+- The **repo is public** (it is the daemon distribution channel — `releases/latest/download/...`
+  must be anonymously fetchable). Secret scanning + push protection are enabled.
+  Nothing secret may enter the repo *or* CI logs, which are world-readable.
+
+## Releasing the daemon
+
+- `git tag vX.Y.Z && git push origin vX.Y.Z` → `release.yml` builds Windows +
+  Linux and publishes a GitHub Release. The tag **must** match the version in
+  `daemon/Cargo.toml` (a job enforces this) — bump the workspace version first.
+- Assets use stable names so `releases/latest/download/<asset>` is durable, and the
+  web onboarding links to exactly those names — **renaming an asset breaks the
+  download buttons** in `backend/src/ui/render.ts`. Keep the two in sync.
+- The PROD backend URL is compiled in via `option_env!("FLEXITRACKER_BACKEND_URL")`
+  from the `PROD_BASE_URL` variable, so a user runs only
+  `flexitracker configure --key <KEY>` then `flexitracker test`.
 
 ## Cloudflare changes go through GitHub Actions (mandatory)
 
 **All Cloudflare operations — deploys AND infrastructure (Access apps/policies, D1, bindings) — are performed by version-controlled scripts run in GitHub Actions, never by ad-hoc dashboard clicks or local `wrangler` commands.** Reproducible, reviewable, no config drift.
 
 - Deploys: `deploy-qa.yml` (auto on `master`; promotes to PROD on a green e2e), `deploy-prod.yml` (manual dispatch, gated — for re-deploys/rollbacks).
-- Access bypass apps: `provision-access.yml` (manual dispatch) → `backend/tools/setup-access-bypass.mjs` (idempotent).
+- Access apps: `provision-access.yml` (manual dispatch, takes a **hostname**) → `backend/tools/setup-access-app.mjs` (the *protected* app + policies; prints the **AUD** to commit) and `backend/tools/setup-access-bypass.mjs` (the *bypass* apps for non-browser paths). Both idempotent.
+- Daemon releases: `release.yml` on a `v*` tag (see *Releasing the daemon* below).
+- Decommissioning renamed-away resources: `decommission.yml` → `backend/tools/decommission.mjs` (dry-run by default; refuses anything still declared in `wrangler.toml`).
 - New Cloudflare infra ⇒ add/extend a script in `backend/tools/` + a workflow; do **not** run it by hand.
+- **QA vs PROD is derived from the HOSTNAME inside the provisioning scripts**, never from a dispatch flag — a forgotten checkbox must never be able to delete QA's `/test` bypass or its CI Service Auth policy. Keep it that way if you touch them.
 - The **only** allowed manual bootstrap (chicken-and-egg / secret-bearing, done once):
   1. creating the `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` GitHub secrets,
-  2. the Google IdP + the main Access application (its generated **AUD** is then committed to `wrangler.toml`),
-  3. `wrangler d1 create` for the two registry DBs (their ids are committed to `wrangler.toml`).
-  Everything after that is codified. (The initial QA `wrangler deploy` done during setup was a one-off bootstrap; henceforth deploys go through Actions.)
-- **Required `CLOUDFLARE_API_TOKEN` scopes:** Account · *Workers Scripts: Edit*, *D1: Edit*, *Access: Apps and Policies: Edit*, *Account Settings: Read*.
+  2. the **Google IdP** in Zero Trust (the Access *applications* are codified — see `setup-access-app.mjs`; their generated **AUD** is committed to `wrangler.toml`),
+  3. `wrangler d1 create` for the two registry DBs (their ids are committed to `wrangler.toml`),
+  4. the Zero Trust **team domain** (`ACCESS_TEAM_DOMAIN`) — renaming it also requires updating the Google OAuth client's authorized redirect URI to `https://<team>.cloudflareaccess.com/cdn-cgi/access/callback`, or every Google login breaks.
+  Everything after that is codified.
+- **Required `CLOUDFLARE_API_TOKEN` scopes** — Account: *Workers Scripts: Edit*, *D1: Edit*, *Access: Apps and Policies: Edit*, *Access: Organizations, Identity Providers, and Groups: Read* (the provisioning script auto-discovers the Google IdP), *Account Settings: Read*. Zone (`vuorinet.net`): *Workers Routes: Edit*, *DNS: Edit*, *SSL and Certificates: Edit*, *Zone: Read* — required for the PROD custom domain. Missing scopes fail as `code 10000 "Authentication error"`.
 
 ## Local development
 
@@ -146,6 +176,29 @@ This project MUST never incur any charge — not now, not after any trial or 12-
   herring here. The bypass apps (`/ingest`,`/test`,…) are unaffected because
   they don't authenticate at all.
 
+- **The QA smoke passes once then fails with inflated hours (e.g. Monday gross 9h
+  instead of 5h, always a whole-hours overshoot)** → `/test/bootstrap` wipes the
+  registry and the *fixtures* account, but **not** the smoke's own (deterministic,
+  persistent) account Durable Object. The kick-out section ingests an `active`
+  event at 20:00 that is never closed, so a *second run in the same week* counts
+  20:00→24:00 as +4h. It hid for months because deploys were normally days apart —
+  different `at()` week. Fix (in place): the smoke calls `/test/reset` with its own
+  key right after minting it. Keep any new persistent-account test idempotent —
+  don't assume one run per week.
+- **A brand-new hostname 404s / won't resolve for ~30 min after deploy, only from
+  your LAN** → something queried it *before* Cloudflare's DNS record existed, and
+  the zone's SOA sets a **1800s negative-cache TTL**, so your router/resolver is
+  pinned to NXDOMAIN. Public resolvers are already correct. It self-heals; don't go
+  reconfiguring split-horizon DNS (the router forwarding is fine — verify by
+  checking whether the NXDOMAIN carries Cloudflare's SOA and whether its TTL counts
+  down, which proves it is *cached*, not locally authoritative). Avoid it entirely
+  by not curling a new hostname until the deploy reports the custom domain attached.
+- **Access changes (new bypass/protected apps, policy edits) don't take effect for
+  a few minutes** → Cloudflare Access config propagates asynchronously. A CI run
+  fired seconds after provisioning can legitimately fail. Re-run before assuming a
+  logic bug — but if the *same* failure repeats after propagation, it is real
+  (that's how the `non_identity` bug above was found).
+
 ## Environment & tooling gotchas (this machine)
 
 - **Node:** the `!` embed and non-interactive shells default to an old Node (18)
@@ -156,3 +209,9 @@ This project MUST never incur any charge — not now, not after any trial or 12-
   `gh secret set <NAME>` (and `wrangler login` paste) silently read empty and
   store a blank value. Set repo secrets via the GitHub web UI, or run them in a
   real interactive terminal.
+- **`gh` CLI surprises seen here:** `gh repo edit --visibility public
+  --accept-visibility-change-consequences` is unsupported on this version — it
+  prints help and silently leaves the repo private; use
+  `gh api -X PATCH repos/:owner/:repo -F private=false`. A *newly pushed*
+  `workflow_dispatch` workflow 404s on `gh workflow run` until GitHub indexes it —
+  retry for ~30s rather than assuming a permissions problem.
