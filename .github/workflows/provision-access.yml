@@ -45,4 +45,7 @@ jobs:
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           HOSTNAME: ${{ inputs.hostname }}
+          # Same input doubles as the "this is QA" signal: only QA gets the
+          # /test bypass (PROD firewall). Elsewhere a stray /test app is removed.
+          INCLUDE_TEST_BYPASS: ${{ inputs.add_ci_service_token && '1' || '' }}
         run: node tools/setup-access-bypass.mjs

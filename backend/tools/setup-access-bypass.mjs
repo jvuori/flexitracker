@@ -10,9 +10,14 @@
 const TOKEN = req("CF_API_TOKEN");
 const ACCOUNT = req("CF_ACCOUNT_ID");
 const HOSTNAME = process.env.HOSTNAME ?? "flexitracker-qa.jaakko-vuori.workers.dev";
-// /test is QA-only (endpoints 404 unless QA_TEST_MODE=1) and key-authed; bypass
-// keeps the CI fixtures loader from being challenged by the browser login.
-const PATHS = ["ingest", "config", "health", "whoami", "test"];
+// /test is QA-ONLY: the endpoints 404 unless QA_TEST_MODE=1 (set only in the QA
+// env), and its bypass keeps the CI fixtures loader off the browser login page.
+// PROD must never carry a /test bypass — even though the routes don't exist
+// there, an unauthenticated bypass contradicts the PROD data firewall. Any
+// stray /test app on a non-QA hostname is deleted below.
+const INCLUDE_TEST = process.env.INCLUDE_TEST_BYPASS === "1";
+const PATHS = ["ingest", "config", "health", "whoami", ...(INCLUDE_TEST ? ["test"] : [])];
+const REMOVE_PATHS = INCLUDE_TEST ? [] : ["test"];
 const API = "https://api.cloudflare.com/client/v4";
 
 function req(name) {
@@ -68,13 +73,25 @@ async function ensureBypassPolicy(appId, domain) {
   console.log(`  added bypass/Everyone policy for ${domain}`);
 }
 
+async function removeApp(domain) {
+  const apps = await cf("GET", `/accounts/${ACCOUNT}/access/apps`);
+  const existing = apps.find((a) => a.domain === domain);
+  if (!existing) return;
+  await cf("DELETE", `/accounts/${ACCOUNT}/access/apps/${existing.id}`);
+  console.log(`removed bypass app: ${domain} (${existing.id})`);
+}
+
 async function main() {
   for (const p of PATHS) {
     const domain = `${HOSTNAME}/${p}`;
     const id = await ensureApp(`flexi-bypass-${p}`, domain);
     await ensureBypassPolicy(id, domain);
   }
-  console.log("\nDone. /ingest, /config, /health, /whoami now bypass Access.");
+  // Sweep bypasses that must not exist on this hostname (e.g. /test on PROD).
+  for (const p of REMOVE_PATHS) {
+    await removeApp(`${HOSTNAME}/${p}`);
+  }
+  console.log(`\nDone. ${PATHS.map((p) => "/" + p).join(", ")} bypass Access.`);
 }
 main().catch((e) => {
   console.error(e.message);
