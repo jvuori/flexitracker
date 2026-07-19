@@ -91,15 +91,7 @@
 - [x] 9.0 Close the smoke's kick-out span. It ingested an `active` at 20:00 that no run ever closed, so each run's numbers depended on whether the next run's reset landed before its assertions. The liveness bound made that dependency *cheaper* (+15 min instead of +hours) but not gone — and it failed the e2e on the first push of this change. Leaving no unclosed span is the cheaper guarantee than relying on the reset.
 - [ ] 9.3 Cover the repair path (from 5.3/5.4, which cannot be unit-tested without a Workers vitest pool): ingest an open span, observe the bounded total, then deliver the late `idle` and assert every affected day — not just the day the idle landed on — returns to the correct total.
 
-## 10. Power and shutdown handlers (sequenced last — optimisation only)
-
-- [ ] 10.1 Linux: handle `SIGTERM` (service stop, shutdown) by emitting `idle` at now and flushing synchronously before exit.
-- [ ] 10.2 Linux: subscribe to logind `PrepareForSleep(true)` over D-Bus and do the same before suspend.
-- [ ] 10.3 Windows: console control handler for `CTRL_SHUTDOWN_EVENT`/`CTRL_CLOSE_EVENT`.
-- [ ] 10.4 Windows: `WM_POWERBROADCAST`/`PBT_APMSUSPEND`, which needs a message loop the daemon does not currently have — keep it isolated from the poll loop.
-- [ ] 10.5 Verify with every handler disabled that behaviour still degrades to reconciliation and the bound, so correctness never depends on a signal firing.
-
-## 11. Verify
+## 10. Verify
 
 - [ ] 11.1 `cargo test` for the daemon and `npm test` for the backend — all green.
 - [ ] 11.2 Manually exercise suspend/resume on this machine (`systemctl suspend`) with the daemon running against the local stack, and confirm the suspended interval is not counted.

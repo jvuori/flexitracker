@@ -105,7 +105,7 @@ Validating it with a minimum would work, but it is the weaker answer. The interv
 
 | # | Situation | Today | After | Resolved by |
 | --- | --- | --- | --- | --- |
-| 1 | Clean shutdown from the Start menu | Span runs to now | Exact `idle` from handler, else exact on next start | Daemon |
+| 1 | Clean shutdown from the Start menu | Span runs to now | Reconciled at next start, back-dated to the last input | Daemon |
 | 2 | Power cut, battery death, hard reset | Span runs to now | Exact `idle` on next start, back-dated to last input | Daemon |
 | 3 | **Lid closed Fri 16:00, opened Mon 08:00** | Whole weekend counted | Closed at Friday's last input | Daemon |
 | 4 | Sleep, user types immediately on wake | Suspend fully counted — reported bug | Gap detected in-process, closed back-dated | Daemon |
@@ -236,14 +236,13 @@ The same divergence appears when the clock is stepped, so the two are ambiguous 
 - **Forward below `I`**: absorbed, whether a small NTP step or a brief suspend.
 - **Forward at or above `I`**: treated as downtime. A genuine forward jump that large is rare, and closing the span errs toward under-counting rather than fabricating work.
 
-### 10. Power and shutdown handlers are a fast path, never the mechanism
+### 10. OS power and shutdown handlers are deliberately **out of scope** here
 
-Signals give an *exact* close instead of a reconciled one, but they can be missed — a power cut fires nothing, and an OS may kill the process before a handler finishes. Every handler is therefore an optimisation, and the system must be correct with all of them disabled.
+Signals would give an *exact* close instead of a reconciled one, but they can be missed — a power cut fires nothing, and an OS may kill the process before a handler finishes. So they are an optimisation on top of the layers above, never the mechanism, and this change is complete and correct without them.
 
-- **Linux**: logind `PrepareForSleep(true)` over D-Bus; `SIGTERM` on service stop and shutdown.
-- **Windows**: console control handler for `CTRL_SHUTDOWN_EVENT`/`CTRL_CLOSE_EVENT`; `WM_POWERBROADCAST`/`PBT_APMSUSPEND`.
+They are therefore **split into `power-signal-handlers`**. They are the only part of this work that adds platform-specific dependencies (D-Bus, the Windows API and a message loop the daemon lacks), and the only part whose absence costs precision rather than correctness. Bundling them would have held a finished safety net behind Windows work that can only be verified on Windows hardware.
 
-Each emits `idle` and flushes the outbox synchronously. Windows power broadcasts need a message loop the daemon lacks, so this work is sequenced **last** — the safety net must not wait on it.
+What this change guarantees without them: a suspend is reconciled in-process, a shutdown or crash is reconciled at next start, and anything still open is bounded by the backend. A handler would only move the close from "the last poll that saw input" to "the moment the OS gave notice".
 
 ### 11. Outbox hardening
 
