@@ -1,41 +1,69 @@
-# Installing the flexi-worker daemon (auto-start on login)
+# Installing the flexi-worker daemon
 
-Get your machine key from the web UI (**Machines → Add machine**); it shows the
-exact command. The daemon saves it to its config on first run, so later starts
-need no arguments.
+First **sign in to the web app, get approved, and add a machine** (Machines →
+Add machine) to obtain this machine's access key. Then install below. Verify with
+`flexi-worker test` — it contacts the service and echoes your account **without
+sending any activity data**, so you can confirm everything works before the
+daemon starts reporting time.
 
-## Windows (auto-start at login, no window)
+Downloads are published on each release:
+`https://github.com/jvuori/flexi-worker-cloud/releases/latest/download/<asset>`.
 
-1. Copy `flexi-worker.exe` somewhere stable, e.g. `%LOCALAPPDATA%\flexi-worker\`.
-2. First run to save config:
-   ```
-   flexi-worker.exe --account-key <KEY> --backend-url https://<host>
-   ```
-3. Auto-start at login via Task Scheduler (runs hidden, no console window):
-   ```
-   schtasks /Create /TN flexi-worker /SC ONLOGON /RL LIMITED ^
-     /TR "%LOCALAPPDATA%\flexi-worker\flexi-worker.exe"
-   ```
-   (Or drop a shortcut in `shell:startup`.)
+> The binaries are **unsigned** (a signing certificate costs money; this project
+> is free forever). Your OS will warn on first run — the steps below say exactly
+> how to allow it.
+
+## Windows
+
+**Option A — setup.exe (recommended).** Download `flexi-worker-setup.exe` and run
+it. If SmartScreen appears, click **More info → Run anyway**. The installer can
+take your access key during setup, installs to `%LOCALAPPDATA%\flexi-worker`, and
+registers a hidden auto-start-at-login task.
+
+**Option B — portable zip.** Download `flexi-worker-windows-x86_64.zip`, extract
+it, and from that folder run in PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1 -Key <ACCESS_KEY>
+```
+
+This installs the binary, configures it, and sets it to auto-start hidden at
+login. Verify:
+
+```powershell
+& "$Env:LOCALAPPDATA\flexi-worker\flexi-worker.exe" test
+```
 
 ## Linux (systemd user service, X11 session)
 
-1. Install the binary: `install -Dm755 flexi-worker ~/.local/bin/flexi-worker`
-2. First run to save config (as above).
-3. Install and enable the user service:
-   ```
-   mkdir -p ~/.config/systemd/user
-   cp flexi-worker.service ~/.config/systemd/user/
-   # edit the ExecStart line (key/host) or rely on the saved config
-   systemctl --user enable --now flexi-worker.service
-   journalctl --user -u flexi-worker -f
-   ```
+```sh
+curl -fsSL https://github.com/jvuori/flexi-worker-cloud/releases/latest/download/flexi-worker-linux-x86_64.tar.gz | tar xz
+./flexi-worker/install.sh <ACCESS_KEY>
+```
+
+This installs the binary to `~/.local/bin`, authorizes it, self-tests, and
+enables the `flexi-worker` user service. Follow the logs with:
+
+```sh
+journalctl --user -u flexi-worker -f
+```
 
 Idle detection uses `libXss` at runtime (X11). On Wayland, idle detection is a
-known limitation (see the design doc); Windows is the primary target.
+known limitation (see the design doc).
+
+## The commands
+
+- `flexi-worker configure --key <KEY>` — save the access key (and, for
+  self-hosters, `--backend-url <URL>`) to the config, then self-test. Release
+  builds have the backend URL **baked in** (`FLEXI_BACKEND_URL` at build time),
+  so you normally only pass the key.
+- `flexi-worker test` — connectivity + authorization check; prints your account
+  email and this machine's label and sends **no** activity data. Use it any time
+  to confirm the daemon can reach the service.
 
 ## Config & state
 
-Stored next to `~/.config/flexi-worker/config.toml` (mode 600): the access key,
-cached thresholds, and — beside it — `outbox.json` (unsent events, survives
-offline) and `state.json` (state-machine persistence for crash recovery).
+Stored in `~/.config/flexi-worker/config.toml` (mode 600 on Unix): the access
+key, cached thresholds, and — beside it — `outbox.json` (unsent events, survives
+offline) and `state.json` (state-machine persistence for crash recovery). On
+Windows these live under `%APPDATA%\flexi-worker`.

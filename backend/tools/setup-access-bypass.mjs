@@ -1,5 +1,5 @@
 // Create the Cloudflare Access "bypass" applications for the daemon/monitoring
-// paths (/ingest, /config, /health) so non-browser clients aren't challenged.
+// paths (/ingest, /config, /health, /whoami) so non-browser clients aren't challenged.
 // Idempotent: re-running reuses existing apps and skips existing bypass policies.
 //
 // Needs an API token with **Account → Access: Apps and Policies → Edit**:
@@ -12,7 +12,7 @@ const ACCOUNT = req("CF_ACCOUNT_ID");
 const HOSTNAME = process.env.HOSTNAME ?? "flexi-worker-cloud-qa.jaakko-vuori.workers.dev";
 // /test is QA-only (endpoints 404 unless QA_TEST_MODE=1) and key-authed; bypass
 // keeps the CI fixtures loader from being challenged by the browser login.
-const PATHS = ["ingest", "config", "health", "test"];
+const PATHS = ["ingest", "config", "health", "whoami", "test"];
 const API = "https://api.cloudflare.com/client/v4";
 
 function req(name) {
@@ -74,7 +74,7 @@ async function main() {
     const id = await ensureApp(`flexi-bypass-${p}`, domain);
     await ensureBypassPolicy(id, domain);
   }
-  console.log("\nDone. /ingest, /config, /health now bypass Access.");
+  console.log("\nDone. /ingest, /config, /health, /whoami now bypass Access.");
 }
 main().catch((e) => {
   console.error(e.message);

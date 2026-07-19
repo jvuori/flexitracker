@@ -1,0 +1,94 @@
+name: Release
+
+# Cut a daemon release from a version tag: build Windows + Linux binaries and
+# publish them to a GitHub Release under stable asset names. Runs ONLY from a
+# tag (never on a plain push), and only after the unit tests pass.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create/update the GitHub Release
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  # Enforce that the tag matches the workspace version so `--version`, the tag,
+  # and the published assets never drift.
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches Cargo.toml version
+        run: |
+          CARGO_VER=$(grep -m1 '^version' daemon/Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          TAG_VER="${GITHUB_REF_NAME#v}"
+          echo "cargo=$CARGO_VER tag=$TAG_VER"
+          [ "$CARGO_VER" = "$TAG_VER" ] || { echo "::error::tag $TAG_VER != Cargo.toml $CARGO_VER"; exit 1; }
+
+  build:
+    needs: [test, version]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: linux
+          - os: windows-latest
+            artifact: windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install X libraries (Linux)
+        if: matrix.artifact == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libxss-dev libx11-dev
+
+      - name: Build release
+        working-directory: daemon
+        # The backend URL is baked in so users only paste a key (option_env!).
+        # Set the PROD_BASE_URL repo variable; if unset, users pass --backend-url.
+        env:
+          FLEXI_BACKEND_URL: ${{ vars.PROD_BASE_URL }}
+        run: cargo build --release
+
+      - name: Package (Linux)
+        if: matrix.artifact == 'linux'
+        working-directory: daemon
+        run: |
+          mkdir -p dist/flexi-worker
+          cp target/release/flexi-worker dist/flexi-worker/
+          cp install/linux/install.sh dist/flexi-worker/
+          cp install/flexi-worker.service dist/flexi-worker/
+          cp install/README.md dist/flexi-worker/
+          tar -C dist -czf flexi-worker-linux-x86_64.tar.gz flexi-worker
+
+      - name: Install Inno Setup (Windows)
+        if: matrix.artifact == 'windows'
+        run: choco install innosetup --no-progress -y
+
+      - name: Package (Windows)
+        if: matrix.artifact == 'windows'
+        working-directory: daemon
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/flexi-worker | Out-Null
+          Copy-Item target/release/flexi-worker.exe dist/flexi-worker/
+          Copy-Item install/install.ps1 dist/flexi-worker/
+          Copy-Item install/README.md dist/flexi-worker/
+          Compress-Archive -Path dist/flexi-worker/* -DestinationPath flexi-worker-windows-x86_64.zip -Force
+          & "${Env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" install/flexi-worker.iss
+          Copy-Item install/Output/flexi-worker-setup.exe flexi-worker-setup.exe
+
+      - name: Publish to the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            daemon/flexi-worker-linux-x86_64.tar.gz
+            daemon/flexi-worker-windows-x86_64.zip
+            daemon/flexi-worker-setup.exe
+          fail_on_unmatched_files: false

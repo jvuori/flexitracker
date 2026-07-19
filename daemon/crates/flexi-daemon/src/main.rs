@@ -28,7 +28,22 @@ fn now_ms() -> i64 {
         .as_millis() as i64
 }
 
+/// Backend URL baked into the release build (CI sets FLEXI_BACKEND_URL), so a
+/// user normally only supplies the access key. Overridable with --backend-url.
+const DEFAULT_BACKEND_URL: Option<&str> = option_env!("FLEXI_BACKEND_URL");
+
+#[derive(PartialEq)]
+enum Cmd {
+    /// Run the monitoring daemon (default, no subcommand).
+    Daemon,
+    /// Write the access key + backend URL to the config, then self-test.
+    Configure,
+    /// Connectivity self-test: prove the key works, send no activity data.
+    Test,
+}
+
 struct Args {
+    cmd: Cmd,
     account_key: Option<String>,
     backend_url: Option<String>,
     config_path: Option<PathBuf>,
@@ -38,6 +53,7 @@ struct Args {
 
 fn parse_args() -> Result<Args, String> {
     let mut a = Args {
+        cmd: Cmd::Daemon,
         account_key: None,
         backend_url: None,
         config_path: None,
@@ -48,7 +64,10 @@ fn parse_args() -> Result<Args, String> {
     while let Some(arg) = it.next() {
         let mut take = || it.next().ok_or_else(|| format!("{arg} requires a value"));
         match arg.as_str() {
-            "--account-key" => a.account_key = Some(take()?),
+            // Subcommands (accepted as the first positional token).
+            "configure" => a.cmd = Cmd::Configure,
+            "test" | "--check" => a.cmd = Cmd::Test,
+            "--account-key" | "--key" => a.account_key = Some(take()?),
             "--backend-url" => a.backend_url = Some(take()?),
             "--config" => a.config_path = Some(PathBuf::from(take()?)),
             "--simulate" => a.simulate = true,
@@ -70,13 +89,17 @@ fn parse_args() -> Result<Args, String> {
 fn print_help() {
     println!(
         "flexi-worker — activity tracking daemon\n\n\
-         USAGE:\n    flexi-worker [--account-key KEY] [--backend-url URL] [OPTIONS]\n\n\
+         USAGE:\n    \
+         flexi-worker configure [--key KEY] [--backend-url URL]   Authorize this machine\n    \
+         flexi-worker test                                        Check connectivity (sends no data)\n    \
+         flexi-worker [OPTIONS]                                   Run the daemon\n\n\
          OPTIONS:\n    \
-         --account-key KEY   Per-machine access key (saved to config on first run)\n    \
-         --backend-url URL   Backend base URL (saved to config)\n    \
+         --key, --account-key KEY   Per-machine access key (saved to config)\n    \
+         --backend-url URL   Backend base URL (defaults to the built-in one)\n    \
          --config PATH       Config file path (default: ~/.config/flexi-worker/config.toml)\n    \
          --simulate          Post a synthetic day through the real pipeline and exit\n    \
          --once              Take a single reading, flush, and exit\n    \
+         --check             Alias for `test`\n    \
          -V, --version       Print version\n    \
          -h, --help          Print this help"
     );
@@ -115,15 +138,48 @@ fn run() -> Result<(), String> {
         machine_id: None,
         thresholds: Default::default(),
     });
-    if let Some(k) = args.account_key {
-        cfg.access_key = k;
+    if let Some(k) = &args.account_key {
+        cfg.access_key = k.clone();
     }
-    if let Some(u) = args.backend_url {
-        cfg.backend_url = u;
+    if let Some(u) = &args.backend_url {
+        cfg.backend_url = u.clone();
     }
+    // Fall back to the URL baked into the release build so users only need a key.
+    if cfg.backend_url.is_empty() {
+        if let Some(u) = DEFAULT_BACKEND_URL {
+            cfg.backend_url = u.to_string();
+        }
+    }
+
+    // `configure`: prompt for the key if not supplied, persist, then self-test.
+    if args.cmd == Cmd::Configure {
+        if cfg.access_key.is_empty() {
+            cfg.access_key = prompt("Paste your machine access key: ")?;
+        }
+        if cfg.access_key.is_empty() {
+            return Err("no access key provided".into());
+        }
+        if cfg.backend_url.is_empty() {
+            return Err("no backend url (pass --backend-url; releases have one built in)".into());
+        }
+        cfg.save(&config_path)
+            .map_err(|e| format!("cannot write config: {e}"))?;
+        println!("Saved config to {}.", config_path.display());
+        return self_test(&cfg);
+    }
+
+    // `test`: prove connectivity + authorization, sending no activity data.
+    if args.cmd == Cmd::Test {
+        if cfg.access_key.is_empty() || cfg.backend_url.is_empty() {
+            return Err("not configured — run `flexi-worker configure --key <KEY>` first".into());
+        }
+        return self_test(&cfg);
+    }
+
+    // Daemon: needs a key + a url.
     if cfg.access_key.is_empty() || cfg.backend_url.is_empty() {
         return Err(
-            "missing access key or backend url (pass --account-key and --backend-url once)".into(),
+            "missing access key or backend url (run `flexi-worker configure --key <KEY>`)".into(),
         );
     }
     cfg.save(&config_path)
@@ -174,6 +230,40 @@ fn run() -> Result<(), String> {
             return Ok(());
         }
         std::thread::sleep(std::time::Duration::from_millis(thresholds.poll_ms as u64));
+    }
+}
+
+/// Read a trimmed line from stdin after printing a prompt.
+fn prompt(msg: &str) -> Result<String, String> {
+    use std::io::Write;
+    print!("{msg}");
+    std::io::stdout().flush().ok();
+    let mut s = String::new();
+    std::io::stdin()
+        .read_line(&mut s)
+        .map_err(|e| e.to_string())?;
+    Ok(s.trim().to_string())
+}
+
+/// Connectivity self-test: hit the read-only `/whoami`, print the bound account
+/// and machine, and confirm no activity data was sent. Fails if the account is
+/// not active (e.g. still awaiting admin approval) rather than implying success.
+fn self_test(cfg: &Config) -> Result<(), String> {
+    println!("Contacting {} …", cfg.backend_url);
+    let w = sender::whoami(&cfg.backend_url, &cfg.access_key)?;
+    println!("  ✓ Reachable");
+    println!("  ✓ Key valid — account: {}", w.email);
+    if let Some(label) = &w.machine_label {
+        println!("  ✓ This machine: \"{label}\"");
+    }
+    if w.active {
+        println!("  ✓ Account active — no activity data was sent.");
+        Ok(())
+    } else {
+        Err(format!(
+            "account is {} — not active yet (nothing was sent)",
+            w.status
+        ))
     }
 }
 

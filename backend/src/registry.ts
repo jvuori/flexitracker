@@ -318,6 +318,29 @@ export async function wipeRegistry(db: D1Database): Promise<void> {
   await db.prepare("DELETE FROM account").run();
 }
 
+/** Read-only identity echo for a key: account email + this machine's label +
+ *  account status. Unlike resolveKey it does NOT filter revoked keys, so a
+ *  disabled account's daemon can be told "not active" rather than a bare 401. */
+export interface WhoAmI {
+  email: string;
+  status: AccountStatus;
+  machine_id: string;
+  machine_label: string | null;
+  revoked_at: number | null;
+}
+export async function whoamiForKey(db: D1Database, accessKey: string): Promise<WhoAmI | null> {
+  const row = await db
+    .prepare(
+      `SELECT a.email AS email, a.status AS status, k.machine_id AS machine_id,
+              k.label AS machine_label, k.revoked_at AS revoked_at
+         FROM machine_key k JOIN account a ON a.account_id = k.account_id
+        WHERE k.access_key = ?`,
+    )
+    .bind(accessKey)
+    .first<WhoAmI>();
+  return row ?? null;
+}
+
 /** Resolve an access key to its account+machine, or null if unknown/revoked. */
 export async function resolveKey(
   db: D1Database,

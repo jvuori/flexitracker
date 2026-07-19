@@ -4,8 +4,9 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-# Idle detection needs the user's graphical session (X11). Adjust the path.
-ExecStart=%h/.local/bin/flexi-worker --account-key REPLACE_KEY --backend-url https://REPLACE_HOST
+# Reads ~/.config/flexi-worker/config.toml written by `flexi-worker configure`.
+# Idle detection needs the user's graphical session (X11).
+ExecStart=%h/.local/bin/flexi-worker
 Restart=on-failure
 RestartSec=10
 

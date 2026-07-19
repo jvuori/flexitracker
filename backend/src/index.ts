@@ -20,6 +20,7 @@ import {
   resolveKey,
   revokeKey,
   setRequested,
+  whoamiForKey,
   wipeRegistry,
   type AccountStatus,
 } from "./registry";
@@ -81,6 +82,26 @@ app.post("/ingest", async (c) => {
   }
   const { duplicate } = await tenant(c.env, resolved.account_id).ingest(resolved.machine_id, batch);
   return c.json({ ok: true, batch_seq: batch.batch_seq, duplicate });
+});
+
+// ---- daemon connectivity self-test (access-key auth) — READ-ONLY, no data --
+// The daemon's `test` command calls this to prove the key works and is bound to
+// the right account, WITHOUT emitting any activity event. Reports the account
+// status too, so a disabled account's daemon is told "not active" rather than a
+// bare 401. Non-browser path ⇒ must be Access-bypassed like /ingest.
+app.get("/whoami", async (c) => {
+  await ready(c.env);
+  const auth = c.req.header("authorization") ?? "";
+  const key = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  const w = key ? await whoamiForKey(c.env.REGISTRY, key) : null;
+  if (!w) return c.json({ error: "invalid access key" }, 401);
+  return c.json({
+    email: w.email,
+    machineId: w.machine_id,
+    machineLabel: w.machine_label,
+    status: w.status,
+    active: w.status === "active" && w.revoked_at === null,
+  });
 });
 
 // ---- daemon config (access-key auth) — thresholds pushed from settings --

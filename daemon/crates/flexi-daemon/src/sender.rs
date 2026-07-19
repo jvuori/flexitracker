@@ -32,6 +32,31 @@ pub fn post_batch(base: &str, key: &str, batch: &EventBatch) -> Result<(), Strin
     }
 }
 
+/// Read-only account echo for the connectivity self-test. Hits `GET /whoami`,
+/// which sends/stores no activity data — it only proves the key resolves and
+/// reports the bound account + machine.
+#[derive(Deserialize)]
+pub struct WhoAmI {
+    pub email: String,
+    #[serde(rename = "machineLabel")]
+    pub machine_label: Option<String>,
+    pub status: String,
+    pub active: bool,
+}
+
+pub fn whoami(base: &str, key: &str) -> Result<WhoAmI, String> {
+    let url = format!("{}/whoami", base.trim_end_matches('/'));
+    match ureq::get(&url)
+        .set("authorization", &format!("Bearer {key}"))
+        .call()
+    {
+        Ok(resp) => resp.into_json().map_err(|e| e.to_string()),
+        Err(ureq::Error::Status(401, _)) => Err("key rejected (401)".into()),
+        Err(ureq::Error::Status(code, _)) => Err(format!("server returned {code}")),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 /// Fetch current thresholds from the backend (keeps the caller's poll interval).
 pub fn fetch_thresholds(base: &str, key: &str, poll_sec: i64) -> Result<ThresholdCfg, String> {
     let url = format!("{}/config", base.trim_end_matches('/'));

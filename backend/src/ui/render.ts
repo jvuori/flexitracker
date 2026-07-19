@@ -168,6 +168,11 @@ const view=document.getElementById('view');
 document.getElementById('who').textContent=S.email;
 let TZ='UTC';
 const DAYNAMES=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+// Daemon downloads (published per release on the public repo).
+const REL='https://github.com/jvuori/flexi-worker-cloud/releases/latest/download';
+const DL={winSetup:REL+'/flexi-worker-setup.exe',winZip:REL+'/flexi-worker-windows-x86_64.zip',linux:REL+'/flexi-worker-linux-x86_64.tar.gz'};
+function detectOS(){const p=((navigator.userAgentData&&navigator.userAgentData.platform)||navigator.platform||navigator.userAgent||'').toLowerCase();
+ if(p.indexOf('win')>=0)return'windows';if(p.indexOf('mac')>=0)return'mac';if(p.indexOf('linux')>=0&&p.indexOf('android')<0)return'linux';return'other';}
 
 async function api(path,opts){const r=await fetch('/api'+path,Object.assign({headers:{'content-type':'application/json'}},opts));
  if(!r.ok)throw new Error((await r.json().catch(()=>({error:r.statusText}))).error||r.statusText);
@@ -422,14 +427,37 @@ function renderSettings(s){
  f.append(save);view.append(f);
 }
 
+// Build the OS-detected setup instructions for a freshly issued key: download,
+// configure (key pre-filled), test — the "download → configure → test → auto-start"
+// flow. macOS is not published yet.
+function renderSetup(cmd,accessKey){
+ const os=detectOS();
+ const dl=os==='windows'
+   ?'<a class="act" href="'+DL.winSetup+'">Download Windows installer</a> <a class="act" href="'+DL.winZip+'">Portable .zip</a>'
+   :os==='linux'
+   ?'<a class="act" href="'+DL.linux+'">Download Linux (.tar.gz)</a>'
+   :os==='mac'
+   ?'<span class="muted">macOS builds aren\'t available yet — use Windows or Linux for now.</span>'
+   :'<a class="act" href="'+DL.winSetup+'">Windows installer</a> <a class="act" href="'+DL.linux+'">Linux (.tar.gz)</a>';
+ const cfg='flexi-worker configure --key '+accessKey;
+ cmd.innerHTML=
+  '<p class="muted">Copy this key now — it is shown only once.</p>'+
+  '<p><b>1. Download</b> &nbsp;'+dl+'</p>'+
+  '<p><b>2. Authorize</b> — run once (or paste the key into the Windows installer):</p>'+
+  '<div class="row"><code id="cfgcmd">'+cfg+'</code> <button class="act" id="copycfg">Copy</button></div>'+
+  '<p><b>3. Verify</b> — confirms connectivity, sends no time data:</p><code>flexi-worker test</code>'+
+  '<p class="muted">It then auto-starts on login. Full per-OS steps (and the unsigned-app prompt): '+
+  '<a href="https://github.com/jvuori/flexi-worker-cloud/blob/master/daemon/install/README.md" target="_blank" rel="noopener">install guide</a>.</p>';
+ cmd.querySelector('#copycfg').onclick=async()=>{try{await navigator.clipboard.writeText(cfg);cmd.querySelector('#copycfg').textContent='Copied ✓';}catch{const r=document.createRange();r.selectNode(cmd.querySelector('#cfgcmd'));getSelection().removeAllRanges();getSelection().addRange(r);}};
+}
+
 function renderMachines(m){
  view.innerHTML='<h2>Machines</h2>';
+ view.append(el('<p class="muted">Set up a machine: add it below, download the daemon, authorize it with the key, verify with <code>flexi-worker test</code>, and it auto-starts on login.</p>'));
  const add=el('<div class="card"><div class="row"><input id="label" placeholder="Machine label (e.g. Laptop)"><button class="act" id="issue">+ Add machine</button></div><div id="cmd"></div></div>');
  view.append(add);
  document.getElementById('issue').onclick=async()=>{const label=document.getElementById('label').value||null;const k=await api('/machines',{method:'POST',body:JSON.stringify({label})});
-  const cmd=document.getElementById('cmd');
-  cmd.innerHTML='<p class="muted">Copy this key now — it is shown only once:</p><code id="keyval">'+k.access_key+'</code> <button class="act" id="copykey">Copy</button><p class="muted">Run: <code>flexi-worker --account-key=&lt;key&gt;</code></p>';
-  document.getElementById('copykey').onclick=async()=>{try{await navigator.clipboard.writeText(k.access_key);document.getElementById('copykey').textContent='Copied ✓';}catch{const r=document.createRange();r.selectNode(document.getElementById('keyval'));getSelection().removeAllRanges();getSelection().addRange(r);}};};
+  renderSetup(document.getElementById('cmd'),k.access_key);};
  const t=el('<table><tr><th>Label</th><th>Machine</th><th>Last seen</th><th>Key</th><th></th></tr></table>');
  const seen={};for(const mc of m.machines)seen[mc.machine_id]=mc;
  for(const k of m.keys){const mc=seen[k.machine_id];
