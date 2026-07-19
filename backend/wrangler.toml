@@ -85,7 +85,7 @@ ADMIN_EMAILS = "jaakko.vuori@gmail.com"
 ACCESS_TEAM_DOMAIN = "flexitracker.cloudflareaccess.com"
 # PROD gets its OWN Access application → its OWN AUD, created by
 # provision-access.yml for the custom domain flexitracker.vuorinet.net.
-ACCESS_AUD = "REPLACE_WITH_PROD_AUD"
+ACCESS_AUD = "633ce4d16cab19f15934d1d20398d5d25f409e375bc75df9fba61ad67e61141b"
 # Admin notification on new access requests — enable after the one-time Email
 # Routing bootstrap (see the QA note above), then uncomment [[env.prod.send_email]].
 # ADMIN_NOTIFY_ADDRESS = "jaakko.vuori@gmail.com"
