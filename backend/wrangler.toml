@@ -39,7 +39,7 @@ name = "flexitracker-qa"
 [env.qa.vars]
 DEV_MODE = "0"
 ADMIN_EMAILS = "jaakko.vuori@gmail.com"
-ACCESS_TEAM_DOMAIN = "flexi-worker-team.cloudflareaccess.com"
+ACCESS_TEAM_DOMAIN = "flexitracker.cloudflareaccess.com"
 ACCESS_AUD = "75ada7e725c5e2c16fe2cc0a46f3632ff58b57587fbd2e477d137d095b4408b5"
 # QA-only test surface. Deliberately absent from [env.prod.vars] (PROD firewall).
 QA_TEST_MODE = "1"
@@ -82,7 +82,7 @@ custom_domain = true
 [env.prod.vars]
 DEV_MODE = "0"
 ADMIN_EMAILS = "jaakko.vuori@gmail.com"
-ACCESS_TEAM_DOMAIN = "flexi-worker-team.cloudflareaccess.com"
+ACCESS_TEAM_DOMAIN = "flexitracker.cloudflareaccess.com"
 # PROD gets its OWN Access application → its OWN AUD, created by
 # provision-access.yml for the custom domain flexitracker.vuorinet.net.
 ACCESS_AUD = "REPLACE_WITH_PROD_AUD"
