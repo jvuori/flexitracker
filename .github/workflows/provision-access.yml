@@ -17,6 +17,10 @@ on:
         description: Allow the CI Access service token (QA only — needed by the post-deploy smoke)
         type: boolean
         default: false
+      idp_id:
+        description: Google IdP id (optional — only if the token can't list Identity Providers)
+        required: false
+        default: ""
 
 jobs:
   provision:
@@ -33,6 +37,7 @@ jobs:
           CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           HOSTNAME: ${{ inputs.hostname }}
           ADD_CI_SERVICE_TOKEN: ${{ inputs.add_ci_service_token && '1' || '' }}
+          ACCESS_IDP_ID: ${{ inputs.idp_id }}
         run: node tools/setup-access-app.mjs
       - name: Create Access bypass apps
         working-directory: backend
