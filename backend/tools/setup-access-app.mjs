@@ -63,46 +63,70 @@ async function googleIdpId() {
 }
 
 async function ensureApp(idpId) {
-  const apps = await cf("GET", `/accounts/${ACCOUNT}/access/apps`);
-  const existing = apps.find((a) => a.domain === HOSTNAME);
-  if (existing) {
-    console.log(`app exists: ${HOSTNAME} (${existing.id})`);
-    return existing;
-  }
-  const app = await cf("POST", `/accounts/${ACCOUNT}/access/apps`, {
+  // A service token is not an interactive identity, so auto-redirect-to-IdP must
+  // be OFF wherever the CI token must authenticate (QA) — otherwise Access sends
+  // the login page instead of evaluating the service-token policy.
+  const cfg = {
     name: `FlexiTracker (${HOSTNAME})`,
     domain: HOSTNAME,
     type: "self_hosted",
     session_duration: "24h",
     allowed_idps: [idpId],
-    auto_redirect_to_identity: true,
-  });
-  console.log(`created app: ${HOSTNAME} (${app.id})`);
+    auto_redirect_to_identity: !ADD_CI,
+  };
+  const apps = await cf("GET", `/accounts/${ACCOUNT}/access/apps`);
+  const existing = apps.find((a) => a.domain === HOSTNAME);
+  if (existing) {
+    const app = await cf("PUT", `/accounts/${ACCOUNT}/access/apps/${existing.id}`, cfg);
+    console.log(`app updated: ${HOSTNAME} (${app.id})`);
+    return app;
+  }
+  const app = await cf("POST", `/accounts/${ACCOUNT}/access/apps`, cfg);
+  console.log(`app created: ${HOSTNAME} (${app.id})`);
   return app;
 }
 
-async function ensureAllowPolicy(appId) {
+async function ensurePolicy(appId, name, include) {
   const policies = await cf("GET", `/accounts/${ACCOUNT}/access/apps/${appId}/policies`);
-  if (policies.some((p) => p.decision === "allow")) {
-    console.log("  allow policy already present");
-    return;
+  const existing = policies.find((p) => p.name === name);
+  if (existing) {
+    await cf("PUT", `/accounts/${ACCOUNT}/access/apps/${appId}/policies/${existing.id}`, {
+      name,
+      decision: "allow",
+      include,
+    });
+    console.log(`  policy updated: ${name}`);
+  } else {
+    await cf("POST", `/accounts/${ACCOUNT}/access/apps/${appId}/policies`, {
+      name,
+      decision: "allow",
+      include,
+    });
+    console.log(`  policy created: ${name}`);
   }
-  // Google-authenticated humans (allowed_idps already restricts to Google), plus
-  // the CI service token on QA so the post-deploy smoke can call authed routes.
-  const include = [{ everyone: {} }];
-  if (ADD_CI) include.push({ any_valid_service_token: {} });
-  await cf("POST", `/accounts/${ACCOUNT}/access/apps/${appId}/policies`, {
-    name: "allow-google" + (ADD_CI ? "-and-ci" : ""),
-    decision: "allow",
-    include,
-  });
-  console.log(`  added allow policy${ADD_CI ? " (+ CI service token)" : ""}`);
 }
 
 async function main() {
   const idpId = await googleIdpId();
   const app = await ensureApp(idpId);
-  await ensureAllowPolicy(app.id);
+
+  // Humans authenticated via the (only) allowed Google IdP.
+  await ensurePolicy(app.id, "allow-google", [{ everyone: {} }]);
+  // CI service token as its OWN policy (OR-evaluated), so QA's post-deploy smoke
+  // can reach authed /api/* routes non-interactively.
+  if (ADD_CI) {
+    await ensurePolicy(app.id, "allow-ci-service-token", [{ any_valid_service_token: {} }]);
+  }
+
+  // Diagnostics: dump the effective app + policy config.
+  const policies = await cf("GET", `/accounts/${ACCOUNT}/access/apps/${app.id}/policies`);
+  console.log(
+    `\napp: auto_redirect_to_identity=${app.auto_redirect_to_identity} allowed_idps=${JSON.stringify(app.allowed_idps)}`,
+  );
+  console.log(
+    `policies: ${JSON.stringify(policies.map((p) => ({ name: p.name, decision: p.decision, include: p.include })))}`,
+  );
+
   console.log("\n==================== ACCESS_AUD ====================");
   console.log(app.aud);
   console.log("===================================================");
