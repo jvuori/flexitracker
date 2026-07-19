@@ -40,7 +40,7 @@ name = "flexitracker-qa"
 DEV_MODE = "0"
 ADMIN_EMAILS = "jaakko.vuori@gmail.com"
 ACCESS_TEAM_DOMAIN = "flexitracker.cloudflareaccess.com"
-ACCESS_AUD = "75ada7e725c5e2c16fe2cc0a46f3632ff58b57587fbd2e477d137d095b4408b5"
+ACCESS_AUD = "e25fbe48e0f2476482a7363778eaefd15e76b6d38d6765e9ecf85af2feb612db"
 # QA-only test surface. Deliberately absent from [env.prod.vars] (PROD firewall).
 QA_TEST_MODE = "1"
 QA_FIXTURE_EMAIL = "jaakko.vuori@gmail.com"
