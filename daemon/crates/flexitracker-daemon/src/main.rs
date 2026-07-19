@@ -198,6 +198,12 @@ fn run() -> Result<(), String> {
     let state_path = config_path.with_file_name("state.json");
     let outbox_path = config_path.with_file_name("outbox.json");
     let mut ob = Outbox::open(outbox_path).map_err(|e| format!("outbox: {e}"))?;
+    // A machine offline for months would otherwise grow the queue without limit
+    // with events the backend rejects as too old on arrival.
+    let dropped = ob.trim_expired(now_ms());
+    if dropped > 0 {
+        eprintln!("dropped {dropped} outbox event(s) older than the backend edit window");
+    }
     ob.set_machine(machine_descriptor()).ok();
 
     if args.simulate {
@@ -294,9 +300,15 @@ fn load_state(path: &std::path::Path) -> Option<Persisted> {
     let text = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&text).ok()
 }
+/// Persist via temp + rename. This file is the sole basis for reconstructing the
+/// end of a span after an ungraceful shutdown, so a torn write would corrupt
+/// exactly the record that exists to survive one.
 fn save_state(path: &std::path::Path, p: &Persisted) {
     if let Ok(text) = serde_json::to_string(p) {
-        let _ = std::fs::write(path, text);
+        let tmp = path.with_extension("tmp");
+        if std::fs::write(&tmp, text).is_ok() {
+            let _ = std::fs::rename(&tmp, path);
+        }
     }
 }
 

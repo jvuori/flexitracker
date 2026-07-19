@@ -79,10 +79,10 @@
 
 ## 8. Daemon: outbox hardening
 
-- [ ] 8.1 Make `Outbox::persist` and `save_state` atomic — write to a temp file in the same directory, then rename over the target.
-- [ ] 8.2 Trim events older than the backend's 120-day edit window on load and before persist, so an extended offline period cannot grow the queue without limit.
-- [ ] 8.3 Chunk `next_batch` to a bounded event count, and change `ack` to clear only the acknowledged chunk rather than the whole queue — each chunk carrying its own `batch_seq`.
-- [ ] 8.4 Tests: a truncated/corrupt outbox file still starts (7.1); trimming drops only over-age events; a queue larger than one chunk drains across several acknowledged batches with distinct `batch_seq`.
+- [x] 8.1 Make `Outbox::persist` and `save_state` atomic — write to a temp file in the same directory, then rename over the target.
+- [x] 8.2 Trim events older than the backend's 120-day edit window on load and before persist, so an extended offline period cannot grow the queue without limit.
+- [x] 8.3 Chunk `next_batch` to a bounded event count, and change `ack` to clear only the acknowledged chunk rather than the whole queue — each chunk carrying its own `batch_seq`.
+- [x] 8.4 Tests: a truncated/corrupt outbox file still starts (7.1); trimming drops only over-age events; a queue larger than one chunk drains across several acknowledged batches with distinct `batch_seq`.
 
 ## 9. E2E
 
