@@ -20,15 +20,23 @@ This project MUST never incur any charge — not now, not after any trial or 12-
 ## Environments & deployment
 
 - Two **isolated** environments: **QA** and **PROD** (separate Cloudflare resources and data). Never point QA tooling or seed data at PROD.
-- **QA auto-deploys on every push** to `main` via GitHub Actions.
-- **PROD deploys ONLY on explicit manual instruction from the user.** Never deploy PROD automatically or on your own initiative.
+- **QA auto-deploys on every push** to `master` via GitHub Actions.
 - After QA deploy, the **end-to-end suite runs against live QA** (ingest → seal → week view → correction round-trip); PROD is gated on it passing.
+- **Continuous Deployment: a green QA e2e auto-promotes the SAME commit to PROD**
+  in the same pipeline run (`deploy-qa.yml` → `prod` job). There is no manual
+  approval step. A red e2e blocks the promotion, so **the e2e suite is the only
+  safety net in front of production** — never weaken it, never mark a flaky check
+  as skipped to get a deploy through; fix the root cause instead.
+- `deploy-prod.yml` remains for **manual** out-of-band deploys (re-deploy, or
+  rolling back by dispatching an older ref).
+- The pipeline **queues** rather than cancels (`cancel-in-progress: false`) so a
+  rapid second push can never cancel an in-flight PROD deploy.
 
 ## Cloudflare changes go through GitHub Actions (mandatory)
 
 **All Cloudflare operations — deploys AND infrastructure (Access apps/policies, D1, bindings) — are performed by version-controlled scripts run in GitHub Actions, never by ad-hoc dashboard clicks or local `wrangler` commands.** Reproducible, reviewable, no config drift.
 
-- Deploys: `deploy-qa.yml` (auto on `main`), `deploy-prod.yml` (manual dispatch, gated).
+- Deploys: `deploy-qa.yml` (auto on `master`; promotes to PROD on a green e2e), `deploy-prod.yml` (manual dispatch, gated — for re-deploys/rollbacks).
 - Access bypass apps: `provision-access.yml` (manual dispatch) → `backend/tools/setup-access-bypass.mjs` (idempotent).
 - New Cloudflare infra ⇒ add/extend a script in `backend/tools/` + a workflow; do **not** run it by hand.
 - The **only** allowed manual bootstrap (chicken-and-egg / secret-bearing, done once):
