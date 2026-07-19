@@ -60,6 +60,16 @@ async function run() {
   const key = await j("/api/machines", { method: "POST", body: JSON.stringify({ label: "smoke" }) });
   check("issued access key", typeof key.access_key === "string" && !!key.machine_id);
 
+  // Clean the account's tenant DO before the worktime assertions. /test/bootstrap
+  // wipes the registry + the fixtures account, but NOT this (deterministic) smoke
+  // account's Durable Object — so a prior same-week run's trailing events (e.g. the
+  // kick-out section's open active at 20:00) would otherwise leak +hours into the
+  // numbers below. Reset makes the smoke idempotent regardless of run cadence.
+  await fetch(BASE + "/test/reset", {
+    method: "POST",
+    headers: { authorization: `Bearer ${key.access_key}` },
+  });
+
   // Connectivity self-test (what `flexitracker test` calls): read-only, echoes the
   // bound account + machine, sends no activity data.
   const who = await (

@@ -99,12 +99,23 @@ async function ensurePolicy(appId, name, decision, include) {
   }
 }
 
+async function prunePolicies(appId, keep) {
+  const policies = await cf("GET", `/accounts/${ACCOUNT}/access/apps/${appId}/policies`);
+  for (const p of policies) {
+    if (keep.has(p.name)) continue;
+    await cf("DELETE", `/accounts/${ACCOUNT}/access/apps/${appId}/policies/${p.id}`);
+    console.log(`  policy pruned: ${p.name} (${p.decision})`);
+  }
+}
+
 async function main() {
   const idpId = await googleIdpId();
   const app = await ensureApp(idpId);
 
+  const keep = new Set();
   // Humans authenticated via the (only) allowed Google IdP.
   await ensurePolicy(app.id, "allow-google", "allow", [{ everyone: {} }]);
+  keep.add("allow-google");
   // CI service token as a dedicated **Service Auth** policy (decision
   // "non_identity") — the only decision that authorizes a non-interactive
   // service token; a plain "allow" include still forces interactive auth. Lets
@@ -113,7 +124,11 @@ async function main() {
     await ensurePolicy(app.id, "ci-service-token", "non_identity", [
       { any_valid_service_token: {} },
     ]);
+    keep.add("ci-service-token");
   }
+  // Remove any other policies (e.g. debugging leftovers) so the app carries
+  // exactly the intended set.
+  await prunePolicies(app.id, keep);
 
   // Diagnostics: dump the effective app + policy config.
   const policies = await cf("GET", `/accounts/${ACCOUNT}/access/apps/${app.id}/policies`);
