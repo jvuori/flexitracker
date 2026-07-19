@@ -7,6 +7,17 @@ name: Deploy QA → PROD
 on:
   push:
     branches: [master]
+    # Skip pushes that cannot change the deployed system. This is a DENYLIST on
+    # purpose: an allowlist would silently stop deploying a newly added source
+    # directory, and the e2e that gates PROD would never run for it. Deploy
+    # unless proven inert. A commit touching both an ignored path and a real one
+    # still deploys.
+    # Assumes nothing in the build reads Markdown — if a generated docs site or
+    # Markdown compiled into the UI is ever added, narrow these.
+    paths-ignore:
+      - "openspec/**"
+      - "docs/**"
+      - "**/*.md"
 
 # Queue, never cancel: a rapid second push must not abort an in-flight PROD
 # deploy mid-promotion.
