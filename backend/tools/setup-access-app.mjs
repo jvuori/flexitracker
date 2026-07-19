@@ -86,23 +86,16 @@ async function ensureApp(idpId) {
   return app;
 }
 
-async function ensurePolicy(appId, name, include) {
+async function ensurePolicy(appId, name, decision, include) {
   const policies = await cf("GET", `/accounts/${ACCOUNT}/access/apps/${appId}/policies`);
   const existing = policies.find((p) => p.name === name);
+  const body = { name, decision, include };
   if (existing) {
-    await cf("PUT", `/accounts/${ACCOUNT}/access/apps/${appId}/policies/${existing.id}`, {
-      name,
-      decision: "allow",
-      include,
-    });
-    console.log(`  policy updated: ${name}`);
+    await cf("PUT", `/accounts/${ACCOUNT}/access/apps/${appId}/policies/${existing.id}`, body);
+    console.log(`  policy updated: ${name} (${decision})`);
   } else {
-    await cf("POST", `/accounts/${ACCOUNT}/access/apps/${appId}/policies`, {
-      name,
-      decision: "allow",
-      include,
-    });
-    console.log(`  policy created: ${name}`);
+    await cf("POST", `/accounts/${ACCOUNT}/access/apps/${appId}/policies`, body);
+    console.log(`  policy created: ${name} (${decision})`);
   }
 }
 
@@ -111,11 +104,15 @@ async function main() {
   const app = await ensureApp(idpId);
 
   // Humans authenticated via the (only) allowed Google IdP.
-  await ensurePolicy(app.id, "allow-google", [{ everyone: {} }]);
-  // CI service token as its OWN policy (OR-evaluated), so QA's post-deploy smoke
-  // can reach authed /api/* routes non-interactively.
+  await ensurePolicy(app.id, "allow-google", "allow", [{ everyone: {} }]);
+  // CI service token as a dedicated **Service Auth** policy (decision
+  // "non_identity") — the only decision that authorizes a non-interactive
+  // service token; a plain "allow" include still forces interactive auth. Lets
+  // QA's post-deploy smoke reach authed /api/* routes.
   if (ADD_CI) {
-    await ensurePolicy(app.id, "allow-ci-service-token", [{ any_valid_service_token: {} }]);
+    await ensurePolicy(app.id, "ci-service-token", "non_identity", [
+      { any_valid_service_token: {} },
+    ]);
   }
 
   // Diagnostics: dump the effective app + policy config.
