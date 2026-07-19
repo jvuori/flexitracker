@@ -212,10 +212,21 @@ async function run() {
   // Kick-out (runs last: disabling revokes ALL the account's keys). The key that
   // worked a moment ago must stop being accepted at /ingest once disabled.
   {
+    // The payload is incidental to this check, but it must be a CLOSED span.
+    // An unclosed `active` here outlives the run, and the next run's numbers
+    // then depend on whether its reset landed first — which is a flaky e2e in
+    // front of PROD. The start-of-run reset should catch it; not leaving the
+    // landmine is the cheaper guarantee.
     const before = await fetch(BASE + "/ingest", {
       method: "POST",
       headers: { authorization: `Bearer ${key.access_key}`, "content-type": "application/json" },
-      body: JSON.stringify({ batch_seq: 20, events: [{ ts: at(20), kind: "active" }] }),
+      body: JSON.stringify({
+        batch_seq: 20,
+        events: [
+          { ts: at(20), kind: "active" },
+          { ts: at(20) + 30 * 60_000, kind: "idle" },
+        ],
+      }),
     });
     check("key ingests while active", before.ok, `got ${before.status}`);
     await j("/test/disable", { method: "POST", body: JSON.stringify({ accountId: me0.accountId }) });

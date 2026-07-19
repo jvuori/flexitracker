@@ -106,6 +106,15 @@ main{max-width:900px;margin:0 auto;padding:1rem}
 .seg.removed{background:repeating-linear-gradient(45deg,rgba(139,149,166,.22) 0 3px,transparent 3px 7px);border:1.5px solid var(--excluded)}
 .seg.gap{background:rgba(127,135,150,.09)}
 .seg.sel{outline:2px solid var(--fg);outline-offset:0;z-index:3}
+/* Provisional: the machine went quiet without ever saying it stopped, so this
+   period's end is inferred, not measured. Distinct across the whole extent
+   (desaturated + hatched), with the right edge fading out rather than ending
+   in a hard boundary — it reads "at least until here, then unknown". */
+.seg.provisional{opacity:.72;background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.45) 0 2px,transparent 2px 6px);
+ -webkit-mask-image:linear-gradient(90deg,#000 0,#000 70%,transparent 100%);mask-image:linear-gradient(90deg,#000 0,#000 70%,transparent 100%);
+ border-right:none}
+.pt.provisional{opacity:.72}
+.prov{color:var(--muted);font-size:.75rem;font-style:italic}
 .hours{position:relative;height:.85rem;margin-top:2px;font-size:.6rem;color:var(--muted)}
 .hours span{position:absolute;transform:translateX(-50%)}
 .hours span:first-child{transform:none}.hours span:last-child{transform:translateX(-100%)}
@@ -275,7 +284,10 @@ function dayLane(d,i,now){
  const DAY=86400000;
  const pct=ts=>Math.max(0,Math.min(100,((ts-d.dayStart)/DAY)*100));
  let bars='';
- d.periods.forEach((p,idx)=>{bars+='<div class="seg '+p.type+'" data-i="'+idx+'" style="left:'+pct(p.start)+'%;width:'+(pct(p.end)-pct(p.start))+'%"></div>';});
+ // A provisional period gets its own treatment across its WHOLE extent, not
+ // just a marked tail: without a closing event it has no confirmed end at all,
+ // and its extent moves as evidence arrives.
+ d.periods.forEach((p,idx)=>{bars+='<div class="seg '+p.type+(p.provisional?' provisional':'')+'" data-i="'+idx+'" style="left:'+pct(p.start)+'%;width:'+(pct(p.end)-pct(p.start))+'%"></div>';});
  let hrs='';for(let h=0;h<=24;h++)hrs+='<span style="left:'+(h/24*100)+'%">'+h+'</span>';
  const balCls=d.balanceMs>=0?'pos':'neg';
  const isToday=now>=d.dayStart&&now<d.dayStart+DAY;
@@ -320,6 +332,9 @@ function dayLane(d,i,now){
 
 // Apply the action for the selected period, then re-render the week.
 async function actOn(d,p){
+ // Refuse a still-growing period here too, not only in the strip: its boundaries
+ // are still advancing, so a correction built from them is already stale.
+ if(p.provisional&&p.growing)return;
  const v=verbFor(p.type);if(!v)return;
  if(v.act==='count')await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:p.start,end:p.end})});
  else if(v.act==='exclude')await api('/corrections',{method:'POST',body:JSON.stringify({kind:'remove_work',start:p.start,end:p.end})});
@@ -373,10 +388,10 @@ function buildDetail(lane,d){
  const list=el('<div class="plist"></div>');
  d.periods.forEach((p,idx)=>{
   const dis=!canSelect(d,p); // overnight idle gaps are not selectable
-  const row=el('<button class="prow'+(dis?' disabled':'')+'" data-i="'+idx+'"'+(dis?' disabled':'')+'><span class="pt '+p.type+'"></span>'+
-    '<span class="pr">'+clock(p.start)+'–'+clock(p.end)+'</span>'+
+  const row=el('<button class="prow'+(dis?' disabled':'')+'" data-i="'+idx+'"'+(dis?' disabled':'')+'><span class="pt '+p.type+(p.provisional?' provisional':'')+'"></span>'+
+    '<span class="pr">'+clock(p.start)+(p.provisional?'–?':'–'+clock(p.end))+'</span>'+
     '<span class="pd muted">'+hm(p.end-p.start)+'</span>'+
-    '<span class="pn muted">'+TYPELABEL[p.type]+'</span></button>');
+    '<span class="pn muted">'+TYPELABEL[p.type]+(p.provisional?', last seen '+clock(p.lastAlive):'')+'</span></button>');
   if(!dis)row.onclick=()=>lane.__select(idx);
   list.append(row);
  });
@@ -413,8 +428,21 @@ function renderStrip(strip,d,idx){
  const p=d.periods[idx];
  if(!p){strip.append(el('<span class="muted">Tap a period on the timeline to edit it.</span>'));return;}
  const v=verbFor(p.type);
- strip.append(el('<span class="si"><span class="pt '+p.type+'"></span>'+clock(p.start)+'–'+clock(p.end)+
+ strip.append(el('<span class="si"><span class="pt '+p.type+(p.provisional?' provisional':'')+'"></span>'+clock(p.start)+'–'+clock(p.end)+
    ' · '+hm(p.end-p.start)+' · '+TYPELABEL[p.type]+'</span>'));
+ if(p.provisional){
+  // Say what is actually known: active at least until lastAlive, then unknown.
+  strip.append(el('<span class="prov">no end recorded — last seen '+clock(p.lastAlive)+'</span>'));
+ }
+ // Actions are withheld while the period is still GROWING, not merely while it
+ // is provisional. A correction anchored to an edge that is still advancing is
+ // not the correction the user meant — but a machine that never returns leaves
+ // a permanently provisional period, and withholding forever would make it
+ // impossible to fix.
+ if(p.provisional&&p.growing){
+  strip.append(el('<span class="muted">Still in progress — editable once this machine stops reporting.</span>'));
+  return;
+ }
  if(v){const b=el('<button class="act">'+v.label+'</button>');b.onclick=()=>actOn(d,p);strip.append(b);}
 }
 // Re-fetch and re-render the week in place; dayLane reopens the expanded day.

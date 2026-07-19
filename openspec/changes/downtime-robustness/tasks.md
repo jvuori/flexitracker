@@ -70,10 +70,10 @@
 
 ## 7. UI: provisional periods read as "last known", not as measured
 
-- [ ] 7.1 Give a provisional period its own presentation across its **whole extent** in the day timeline (`backend/src/ui/render.ts`) — not just a marked tail — distinguishable from the existing measured/bridged/manual/removed/gap treatments, and additionally draw its right edge as indefinite rather than as a hard boundary.
-- [ ] 7.2 Show the machine's last-seen time on the period, so it reads "active at least until 16:00, then unknown" rather than as a confirmed end.
-- [ ] 7.3 Suppress the action strip while the period is still growing (machine seen within the liveness window) — a correction anchored to a moving edge is not the correction the user meant. Say why in the strip rather than showing an empty one.
-- [ ] 7.4 Restore the actions once the machine is no longer being seen, even though the period stays provisional — otherwise a machine that never returns leaves a permanently uncorrectable period.
+- [x] 7.1 Give a provisional period its own presentation across its **whole extent** in the day timeline (`backend/src/ui/render.ts`) — not just a marked tail — distinguishable from the existing measured/bridged/manual/removed/gap treatments, and additionally draw its right edge as indefinite rather than as a hard boundary.
+- [x] 7.2 Show the machine's last-seen time on the period, so it reads "active at least until 16:00, then unknown" rather than as a confirmed end.
+- [x] 7.3 Suppress the action strip while the period is still growing (machine seen within the liveness window) — a correction anchored to a moving edge is not the correction the user meant. Say why in the strip rather than showing an empty one.
+- [x] 7.4 Restore the actions once the machine is no longer being seen, even though the period stays provisional — otherwise a machine that never returns leaves a permanently uncorrectable period.
 - [ ] 7.5 Confirm the presentation re-adapts with no special handling: later heartbeats move the end, and the daemon's own `idle` turns it into an ordinary measured period. Both are plain recomputes, so this is a rendering check, not new logic.
 - [ ] 7.6 Check a day with no open spans is visually unchanged — the marking must be invisible when nothing is wrong.
 
@@ -88,6 +88,7 @@
 
 - [ ] 9.1 Add a fixtures scenario for a machine that goes quiet mid-span (active + heartbeats, then nothing) and assert the oracle bounds it at the last heartbeat rather than filling to now.
 - [ ] 9.2 Extend it across a day boundary to lock in that the bleed into following days is gone — the regression that would hurt most if it returned.
+- [x] 9.0 Close the smoke's kick-out span. It ingested an `active` at 20:00 that no run ever closed, so each run's numbers depended on whether the next run's reset landed before its assertions. The liveness bound made that dependency *cheaper* (+15 min instead of +hours) but not gone — and it failed the e2e on the first push of this change. Leaving no unclosed span is the cheaper guarantee than relying on the reset.
 - [ ] 9.3 Cover the repair path (from 5.3/5.4, which cannot be unit-tested without a Workers vitest pool): ingest an open span, observe the bounded total, then deliver the late `idle` and assert every affected day — not just the day the idle landed on — returns to the correct total.
 
 ## 10. Power and shutdown handlers (sequenced last — optimisation only)
