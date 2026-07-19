@@ -9,7 +9,7 @@
 // Needs an API token with Account → Access: Apps and Policies: Edit (+ read of
 // Identity Providers). If IdP listing is blocked, pass ACCESS_IDP_ID explicitly.
 //
-//   CF_API_TOKEN=... CF_ACCOUNT_ID=e669a42c7e15e30c3898902755a05e04 \
+//   CF_API_TOKEN=... CF_ACCOUNT_ID=<your-account-id> \
 //   HOSTNAME=flexitracker-qa.jaakko-vuori.workers.dev \
 //   ADD_CI_SERVICE_TOKEN=1 \            # QA only: let the CI service token in
 //   node tools/setup-access-app.mjs

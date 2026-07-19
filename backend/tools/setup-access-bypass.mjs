@@ -3,7 +3,7 @@
 // Idempotent: re-running reuses existing apps and skips existing bypass policies.
 //
 // Needs an API token with **Account → Access: Apps and Policies → Edit**:
-//   CF_API_TOKEN=... CF_ACCOUNT_ID=e669a42c7e15e30c3898902755a05e04 \
+//   CF_API_TOKEN=... CF_ACCOUNT_ID=<your-account-id> \
 //   HOSTNAME=flexitracker-qa.jaakko-vuori.workers.dev \
 //   node tools/setup-access-bypass.mjs
 

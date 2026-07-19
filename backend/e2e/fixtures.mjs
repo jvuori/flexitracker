@@ -3,7 +3,7 @@
 // re-materializes the data, so QA can be freely explored between runs.
 //
 //   Local:  BASE=http://localhost:8787 node e2e/fixtures.mjs
-//   QA:     BASE=https://…qa….workers.dev SEED_KEY=<key> node e2e/fixtures.mjs
+//   QA:     BASE=https://…qa….workers.dev node e2e/fixtures.mjs   (self-provisioning)
 //
 // PROD PROTECTION (belt and suspenders):
 //   1. The /test/* endpoints only exist where QA_TEST_MODE=1 — never in PROD.
@@ -54,8 +54,11 @@ async function acquireKeys() {
   const keys = r.keys ?? [];
   if (keys.length < MACHINES.length) {
     throw new Error(
+      // Never echo the raw response: it carries live machine access keys and CI
+      // logs are public on a public repo. Shape only.
       `/test/bootstrap returned ${keys.length} keys, need ${MACHINES.length} ` +
-        `(is QA_TEST_MODE=1 and /test bypassed in Access?): ${JSON.stringify(r)}`,
+        `(is QA_TEST_MODE=1 and /test bypassed in Access?): ` +
+        `${JSON.stringify({ accountId: r.accountId, fields: Object.keys(r ?? {}) })}`,
     );
   }
   return keys;
