@@ -127,6 +127,16 @@ This project MUST never incur any charge — not now, not after any trial or 12-
   *surviving* sensor/bridged does not (`manualAdded = subtract(adds, subtract(sensor∪bridged, removes))`).
   A re-added removed span thus counts again and shows as a distinct **manual**
   (never merged back into sensor). Keep add-overrides-remove if you touch it.
+- **The CI smoke's Access service token gets the login page (every `/api/*`
+  returns `{}`) while `/health` + `/test/*` pass** → the protected Access app
+  authorizes the service token with a plain **`allow`** policy. A service token
+  is non-interactive, so `allow` (even with an `any_valid_service_token` include)
+  still forces interactive auth and Access serves the login HTML (HTTP 200,
+  parses to `{}`). Fix: the service token needs its **own dedicated policy with
+  `decision: "non_identity"`** (the API name for "Service Auth") — see
+  `backend/tools/setup-access-app.mjs`. `auto_redirect_to_identity` is a red
+  herring here. The bypass apps (`/ingest`,`/test`,…) are unaffected because
+  they don't authenticate at all.
 
 ## Environment & tooling gotchas (this machine)
 
