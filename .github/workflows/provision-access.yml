@@ -13,10 +13,6 @@ on:
         description: Worker hostname to configure (qa or prod)
         required: true
         default: flexitracker-qa.jaakko-vuori.workers.dev
-      add_ci_service_token:
-        description: Allow the CI Access service token (QA only — needed by the post-deploy smoke)
-        type: boolean
-        default: false
       idp_id:
         description: Google IdP id (optional — only if the token can't list Identity Providers)
         required: false
@@ -36,7 +32,6 @@ jobs:
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           HOSTNAME: ${{ inputs.hostname }}
-          ADD_CI_SERVICE_TOKEN: ${{ inputs.add_ci_service_token && '1' || '' }}
           ACCESS_IDP_ID: ${{ inputs.idp_id }}
         run: node tools/setup-access-app.mjs
       - name: Create Access bypass apps
@@ -45,7 +40,7 @@ jobs:
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           HOSTNAME: ${{ inputs.hostname }}
-          # Same input doubles as the "this is QA" signal: only QA gets the
-          # /test bypass (PROD firewall). Elsewhere a stray /test app is removed.
-          INCLUDE_TEST_BYPASS: ${{ inputs.add_ci_service_token && '1' || '' }}
+          # The /test bypass is derived from the hostname inside the script (QA
+          # only, PROD firewall) — deliberately NOT from a dispatch input, so a
+          # forgotten flag can't delete QA's bypass or add one to PROD.
         run: node tools/setup-access-bypass.mjs

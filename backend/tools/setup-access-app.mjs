@@ -11,13 +11,16 @@
 //
 //   CF_API_TOKEN=... CF_ACCOUNT_ID=<your-account-id> \
 //   HOSTNAME=flexitracker-qa.jaakko-vuori.workers.dev \
-//   ADD_CI_SERVICE_TOKEN=1 \            # QA only: let the CI service token in
+//   (QA vs PROD is derived from HOSTNAME — no flag to forget)
 //   node tools/setup-access-app.mjs
 
 const TOKEN = req("CF_API_TOKEN");
 const ACCOUNT = req("CF_ACCOUNT_ID");
 const HOSTNAME = req("HOSTNAME");
-const ADD_CI = process.env.ADD_CI_SERVICE_TOKEN === "1";
+// QA-ness is derived from the HOSTNAME, never a dispatch flag: a forgotten flag
+// would otherwise prune QA's CI service-token policy and break the post-deploy
+// smoke (and would drop auto-redirect on PROD).
+const ADD_CI = /(^|[.-])qa([.-]|$)/i.test(HOSTNAME);
 const IDP_OVERRIDE = process.env.ACCESS_IDP_ID;
 const API = "https://api.cloudflare.com/client/v4";
 

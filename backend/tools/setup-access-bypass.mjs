@@ -15,9 +15,12 @@ const HOSTNAME = process.env.HOSTNAME ?? "flexitracker-qa.jaakko-vuori.workers.d
 // PROD must never carry a /test bypass — even though the routes don't exist
 // there, an unauthenticated bypass contradicts the PROD data firewall. Any
 // stray /test app on a non-QA hostname is deleted below.
-const INCLUDE_TEST = process.env.INCLUDE_TEST_BYPASS === "1";
-const PATHS = ["ingest", "config", "health", "whoami", ...(INCLUDE_TEST ? ["test"] : [])];
-const REMOVE_PATHS = INCLUDE_TEST ? [] : ["test"];
+// Derived from the HOSTNAME, never from a dispatch flag: forgetting a flag must
+// not be able to delete QA's /test bypass (that silently breaks the fixtures
+// loader), nor add one to PROD. The environment is a property of the hostname.
+const IS_QA = /(^|[.-])qa([.-]|$)/i.test(HOSTNAME);
+const PATHS = ["ingest", "config", "health", "whoami", ...(IS_QA ? ["test"] : [])];
+const REMOVE_PATHS = IS_QA ? [] : ["test"];
 const API = "https://api.cloudflare.com/client/v4";
 
 function req(name) {
@@ -82,6 +85,7 @@ async function removeApp(domain) {
 }
 
 async function main() {
+  console.log(`${HOSTNAME} detected as ${IS_QA ? "QA (/test bypass included)" : "non-QA (/test bypass excluded)"}`);
   for (const p of PATHS) {
     const domain = `${HOSTNAME}/${p}`;
     const id = await ensureApp(`flexi-bypass-${p}`, domain);
