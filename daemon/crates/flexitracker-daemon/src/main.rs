@@ -216,12 +216,23 @@ fn run() -> Result<(), String> {
     let mut source: Box<dyn IdleSource> =
         idle::platform_source().map_err(|e| format!("idle source: {e}"))?;
 
+    // Monotonic reference for suspend detection. Instant does not advance while
+    // the machine is suspended but the wall clock does, so differencing the two
+    // between ticks isolates time the daemon was frozen — which a wall clock
+    // alone cannot distinguish from an NTP step.
+    let mut last_mono: Option<std::time::Instant> = None;
+
     loop {
         let s: Sample = source.sample().map_err(|e| format!("idle sample: {e}"))?;
+        let mono_now = std::time::Instant::now();
+        let mono_elapsed_ms =
+            last_mono.map(|prev| mono_now.duration_since(prev).as_millis() as i64);
+        last_mono = Some(mono_now);
         let events = sm.step(Tick {
             now: now_ms(),
             idle_ms: s.idle_ms,
             locked: s.locked,
+            mono_elapsed_ms,
         });
         ob.append(&events).map_err(|e| e.to_string())?;
         save_state(&state_path, &sm.p);

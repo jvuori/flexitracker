@@ -210,7 +210,11 @@ Back-dating an `idle` to when inactivity *began* rather than to when the thresho
 
 The OS already reports the exact answer. At a tick with idle time `X`, the true last input was at `now − X`. Worked through: polls at 15-second spacing, input actually stops at t=7 s. The t=15 poll still sees `idle_ms = 8`, below the poll interval, so it records `last_active_time = 15`. The transition confirms at t=615 with `idle_ms = 608`; back-dating to `last_active_time` yields 15, while `now − idle_ms` yields exactly 7.
 
-So the idle-timeout path anchors to `max(last_active_time, now − idle_ms)`, which is exact rather than poll-quantised and cannot regress below the last observed activity if the OS reports something implausible.
+So the idle-timeout path anchors to `now − idle_ms`.
+
+**It anchors to that value alone, not to the later of it and `last_active_time`.** An earlier draft specified `max(last_active_time, now − idle_ms)`, reasoning that the max guards against an implausible OS reading. That is wrong, and the unit test for this decision caught it: `last_active_time` is the last poll at which input *looked* fresh, so it over-estimates the true stop time by up to the freshness window — in the worked example it holds 15 s against a true 7 s. Taking the later of the two therefore reinstates precisely the quantisation being removed.
+
+The floor against a bogus reading is the emit watermark instead: no event may precede the last emitted one, so a wildly large `idle_ms` cannot back-date the close before the `active` that opened the span. That guard was already required for backwards clock steps (decision 9) and covers this case for free.
 
 The **lock** path deliberately keeps `last_active_time`. On lock, reported idle time is near zero, so `now − idle_ms` would resolve to the lock moment and count the quiet stretch between the last keystroke and the lock as work. Anchoring to the last real input is the conservative and correct reading, and the existing `locked_session_goes_idle` test pins it.
 

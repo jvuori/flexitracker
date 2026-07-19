@@ -6,27 +6,27 @@
 
 ## 1. Daemon: precise anchoring and gap reconciliation
 
-- [ ] 1.1 Change the `recover()` anchor from `last_heartbeat.or(last_active_time)` to the **later** of the two (`state_machine.rs:91`), so the close back-dates to poll-interval precision (15 s) rather than heartbeat-interval precision (5 min).
-- [ ] 1.2 Extract the body of `StateMachine::recover` into a shared `reconcile_gap(now, gap_ms)` and have `recover` call it, so startup and in-loop reconciliation cannot drift apart.
-- [ ] 1.3 Add a monotonic reading (`Instant`) alongside `now_ms()` in `main.rs`, and carry both into `Tick` (wall `now`, plus monotonic elapsed since the previous tick).
-- [ ] 1.4 In `step`, compute `divergence = Δwall − Δmono`; at or above `min_inactivity_ms`, call `reconcile_gap` before the normal state handling so a suspend is closed at the last evidence rather than absorbed.
-- [ ] 1.5 Ignore backwards divergence for span purposes (clock correction, never downtime), and clamp emitted timestamps so no event's `ts` falls below the last emitted `ts`; persist that watermark alongside the other `Persisted` fields.
-- [ ] 1.6 Absorb forward divergence below `min_inactivity`, matching the existing "short break absorbed" semantics.
-- [ ] 1.7 Decouple the **freshness threshold** from `poll_sec`: `input_fresh` currently tests `idle_ms < poll_ms` (`state_machine.rs:83`), so editing the local `poll_sec` silently redefines what counts as recent input — at `poll_sec = 300` a user idle four minutes still reads as active. Give freshness its own constant, sized just above the poll interval, and keep `poll_sec` to sampling cadence alone.
-- [ ] 1.8 Make idle back-dating exact on the idle-timeout path: anchor to `max(last_active_time, tick.now − tick.idle_ms)` instead of `last_active_time` alone (`state_machine.rs:115`). Keep the lock path on `last_active_time` — reported idle time at lock reflects the lock, not the user's last activity, and `locked_session_goes_idle` pins that.
+- [x] 1.1 Change the `recover()` anchor from `last_heartbeat.or(last_active_time)` to the **later** of the two (`state_machine.rs:91`), so the close back-dates to poll-interval precision (15 s) rather than heartbeat-interval precision (5 min).
+- [x] 1.2 Extract the body of `StateMachine::recover` into a shared `reconcile_gap(now, gap_ms)` and have `recover` call it, so startup and in-loop reconciliation cannot drift apart.
+- [x] 1.3 Add a monotonic reading (`Instant`) alongside `now_ms()` in `main.rs`, and carry both into `Tick` (wall `now`, plus monotonic elapsed since the previous tick).
+- [x] 1.4 In `step`, compute `divergence = Δwall − Δmono`; at or above `min_inactivity_ms`, call `reconcile_gap` before the normal state handling so a suspend is closed at the last evidence rather than absorbed.
+- [x] 1.5 Ignore backwards divergence for span purposes (clock correction, never downtime), and clamp emitted timestamps so no event's `ts` falls below the last emitted `ts`; persist that watermark alongside the other `Persisted` fields.
+- [x] 1.6 Absorb forward divergence below `min_inactivity`, matching the existing "short break absorbed" semantics.
+- [x] 1.7 Decouple the **freshness threshold** from `poll_sec`: `input_fresh` currently tests `idle_ms < poll_ms` (`state_machine.rs:83`), so editing the local `poll_sec` silently redefines what counts as recent input — at `poll_sec = 300` a user idle four minutes still reads as active. Give freshness its own constant, sized just above the poll interval, and keep `poll_sec` to sampling cadence alone.
+- [x] 1.8 Make idle back-dating exact on the idle-timeout path: anchor to `tick.now − tick.idle_ms` instead of `last_active_time` (`state_machine.rs:115`). **Not** `max()` of the two, as this task first said — `last_active_time` over-estimates by up to the freshness window, so the max reinstates the quantisation being removed (the test for this caught it). The floor against an implausible OS reading is the emit watermark, not the max. Keep the lock path on `last_active_time` — reported idle time at lock reflects the lock, not the user's last activity, and `locked_session_goes_idle` pins that.
 
 ## 2. Daemon: reconciliation tests
 
-- [ ] 2.1 Anchor precision: with a last input more recent than the last heartbeat, the close back-dates to the input (guards 1.1).
-- [ ] 2.2 Sleep longer than `min_inactivity` with the process alive: span closed back-dated to the last evidence.
-- [ ] 2.3 The reported bug — resume with immediate input (small `idle_ms`) still reconciles instead of staying active.
-- [ ] 2.4 Suspend shorter than `min_inactivity` is absorbed with no event.
-- [ ] 2.5 Backwards clock step: no span closed, no event emitted below the watermark.
-- [ ] 2.6 Small forward clock step is absorbed.
-- [ ] 2.7 Startup `recover()` and in-loop reconciliation produce identical events for the same gap (guards 1.2's shared path).
-- [ ] 2.8 A handler-emitted close followed by reconciliation does not double-close (the second is a no-op because the state is no longer `Active`).
-- [ ] 2.9 Freshness is independent of sampling cadence: with `poll_sec` raised well above the freshness constant, input older than the freshness window is no longer treated as fresh (guards 1.7).
-- [ ] 2.10 Back-dating precision: inactivity beginning between two polls yields an idle at the true stop time, not at the last fresh poll (guards 1.8). Assert the existing `locked_session_goes_idle` still back-dates to the last input.
+- [x] 2.1 Anchor precision: with a last input more recent than the last heartbeat, the close back-dates to the input (guards 1.1).
+- [x] 2.2 Sleep longer than `min_inactivity` with the process alive: span closed back-dated to the last evidence.
+- [x] 2.3 The reported bug — resume with immediate input (small `idle_ms`) still reconciles instead of staying active.
+- [x] 2.4 Suspend shorter than `min_inactivity` is absorbed with no event.
+- [x] 2.5 Backwards clock step: no span closed, no event emitted below the watermark.
+- [x] 2.6 Small forward clock step is absorbed.
+- [x] 2.7 Startup `recover()` and in-loop reconciliation produce identical events for the same gap (guards 1.2's shared path).
+- [x] 2.8 A handler-emitted close followed by reconciliation does not double-close (the second is a no-op because the state is no longer `Active`).
+- [x] 2.9 Freshness is independent of sampling cadence: with `poll_sec` raised well above the freshness constant, input older than the freshness window is no longer treated as fresh (guards 1.7).
+- [x] 2.10 Back-dating precision: inactivity beginning between two polls yields an idle at the true stop time, not at the last fresh poll (guards 1.8). Assert the existing `locked_session_goes_idle` still back-dates to the last input.
 
 ## 3. Backend: provisional bound for open spans
 
