@@ -223,19 +223,39 @@ impl StateMachine {
                 }
             }
             State::Idle => {
-                if fresh {
-                    let since = *self.p.pending_active_since.get_or_insert(tick.now);
-                    if tick.now - since >= self.t.min_activity_ms {
-                        // Confirmed return; back-date to when activity resumed.
-                        let e = self.emit(since, EventKind::Active);
-                        out.push(e);
-                        self.p.reported_state = State::Active;
-                        self.p.pending_active_since = None;
-                        self.p.last_heartbeat = Some(tick.now);
-                    }
-                } else {
-                    // Activity did not sustain — drop the tentative return.
+                // "Activity persisted for min_activity" must tolerate the short
+                // pauses real work contains — reading, thinking, talking. The
+                // accumulator used to be wiped by ANY poll whose input was older
+                // than the freshness window, so a single 25 s pause restarted the
+                // 30 s clock and someone returning from a break could wait
+                // minutes for their active event. The idle side has ten minutes
+                // of hysteresis; this side had none, and that asymmetry was the
+                // bug.
+                //
+                // The claim dies only when the user is idle for min_activity
+                // itself: you cannot have sustained 30 s of activity through a
+                // 30 s hole. Below that the clock keeps running.
+                if tick.locked || tick.idle_ms >= self.t.min_activity_ms {
                     self.p.pending_active_since = None;
+                } else {
+                    // Start only on genuinely fresh input, so a stale reading
+                    // near the threshold cannot open the window on its own; once
+                    // started, short pauses no longer reset it. Anchor to the
+                    // real resume moment (`now - idle_ms`) rather than the poll
+                    // that noticed it, for the same reason the idle path does.
+                    if fresh && self.p.pending_active_since.is_none() {
+                        self.p.pending_active_since = Some(tick.now - tick.idle_ms);
+                    }
+                    if let Some(since) = self.p.pending_active_since {
+                        if tick.now - since >= self.t.min_activity_ms {
+                            // Confirmed return; back-dated to when activity resumed.
+                            let e = self.emit(since, EventKind::Active);
+                            out.push(e);
+                            self.p.reported_state = State::Active;
+                            self.p.pending_active_since = None;
+                            self.p.last_heartbeat = Some(tick.now);
+                        }
+                    }
                 }
             }
         }
@@ -548,6 +568,60 @@ mod tests {
             State::Idle,
             "4-minute-old input must not read as active just because polling is slow"
         );
+    }
+
+    #[test]
+    fn a_short_reading_pause_does_not_restart_the_return_to_work_clock() {
+        // Reported: back from a long break, working for well over min_activity,
+        // and the active event arrived much later. Cause: the accumulator was
+        // wiped by ANY poll whose input was older than the freshness window, so
+        // a single pause to read restarted the 30 s clock — and each further
+        // pause restarted it again.
+        let mut m = sm();
+        m.p.reported_state = State::Idle;
+        assert!(m.step(idle_tick(15_000, 10_000)).is_empty()); // back, working
+        assert!(
+            m.step(idle_tick(30_000, 25_000)).is_empty(),
+            "a 25s pause is not a departure"
+        );
+        let out = m.step(idle_tick(45_000, 5_000));
+        assert_eq!(
+            out.len(),
+            1,
+            "must confirm once 30s of presence has elapsed"
+        );
+        assert_eq!(out[0].kind, EventKind::Active);
+        assert_eq!(
+            out[0].ts, 5_000,
+            "back-dated to when activity actually resumed"
+        );
+    }
+
+    #[test]
+    fn presence_must_still_be_sustained_to_confirm() {
+        // The tolerance above must not let a mouse brushed in passing count as
+        // returning to work.
+        let mut m = sm();
+        m.p.reported_state = State::Idle;
+        m.step(idle_tick(15_000, 15_000)); // one touch, then nothing
+        for (t, idle) in [(30_000, 30_000), (45_000, 45_000), (60_000, 60_000)] {
+            assert!(
+                m.step(idle_tick(t, idle)).is_empty(),
+                "a single touch must not confirm a return"
+            );
+        }
+        assert_eq!(m.p.reported_state, State::Idle);
+    }
+
+    #[test]
+    fn a_gap_of_min_activity_kills_the_pending_return() {
+        let mut m = sm();
+        m.p.reported_state = State::Idle;
+        m.step(idle_tick(15_000, 5_000)); // clock starts
+        m.step(idle_tick(50_000, 35_000)); // idle >= min_activity: gone again
+        assert!(m.p.pending_active_since.is_none());
+        // A fresh poll now starts a NEW clock rather than inheriting the old one.
+        assert!(m.step(idle_tick(60_000, 2_000)).is_empty());
     }
 
     #[test]

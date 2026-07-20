@@ -7,6 +7,16 @@ A confirmed idle SHALL be back-dated to the moment inactivity **began**, derived
 
 Where the transition is caused by the session locking rather than by inactivity elapsing, the daemon SHALL back-date to the last observed input instead, because reported idle time at that moment reflects the lock rather than the user's last activity.
 
+"Activity persists for at least `min_activity`" SHALL mean that the user was present throughout that window, not that every sampling instant observed recent input. Real work contains short pauses — reading, thinking, talking — and a pending return SHALL survive them. It SHALL be abandoned only when the user has been idle for at least `min_activity` itself, since sustained activity cannot span a hole that long. The confirmed event SHALL be back-dated to when activity resumed rather than to the poll that noticed it.
+
+#### Scenario: A short pause does not restart the return-to-work clock
+- **WHEN** the user returns and works, pauses briefly to read for less than `min_activity`, and continues
+- **THEN** the active transition is confirmed once `min_activity` has elapsed since activity resumed, rather than the clock restarting at each pause
+
+#### Scenario: A single stray input does not confirm a return
+- **WHEN** input is observed once and the user is then idle for at least `min_activity`
+- **THEN** no active transition is emitted and the pending return is abandoned
+
 #### Scenario: Short break absorbed
 - **WHEN** the user is inactive for less than `min_inactivity` and then resumes
 - **THEN** no idle event is emitted and the active span remains continuous
