@@ -46,6 +46,12 @@ jobs:
           fetch-depth: 0 # full history + tags so hatch-vcs derives the version
       - name: Install uv
         uses: astral-sh/setup-uv@v5
+      - name: Pin the version to the tag
+        # hatch-vcs would otherwise read the tree as a dev version once the bake
+        # step below dirties it; pin it to the tag so the wheel is exactly vX.Y.Z.
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: echo "SETUPTOOLS_SCM_PRETEND_VERSION=${TAG#v}" >> "$GITHUB_ENV"
       - name: Bake the PROD backend URL into the wheel
         # Rewrites BAKED_BACKEND_URL so a user supplies only a key. If PROD_BASE_URL
         # is unset the URL stays empty and users pass --backend-url (self-hosters).
@@ -88,6 +94,13 @@ jobs:
           ref: ${{ github.event.inputs.tag }} # empty on a release event = the tag commit
       - name: Install uv
         uses: astral-sh/setup-uv@v5
+      - name: Pin the version to the tag
+        # So the frozen exe's bundled metadata is exactly vX.Y.Z regardless of the
+        # bake step dirtying the tree (which hatch-vcs would read as a dev version).
+        shell: bash
+        env:
+          TAG: ${{ github.event.release.tag_name || github.event.inputs.tag }}
+        run: echo "SETUPTOOLS_SCM_PRETEND_VERSION=${TAG#v}" >> "$GITHUB_ENV"
       - name: Bake the PROD backend URL into the executable
         shell: bash
         env:
