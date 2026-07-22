@@ -213,7 +213,16 @@ async function run() {
   // provisional-bound story end to end: the open span must be bounded rather
   // than run to now, must not bleed into the next day, and must be REPLACED —
   // not merely re-sealed on its own day — when the machine's own idle arrives.
+  //
+  // Anchored to LAST week, not this one. The bound is `min(now, lastAlive +
+  // grace)`, so it only applies once `now` is past the events — a scenario on
+  // the current week is in the future when the smoke runs early in the week
+  // (it ran on a Monday and the span, on Tuesday, had not started, so it was
+  // correctly dropped to 0h). Last week is always in the past regardless of the
+  // day, so the assertions are stable. Offset -1 is otherwise empty on this
+  // account, so there is no collision with the offset-0 checks above.
   {
+    const lw = (h, m = 0) => monday - 7 * 24 * H + h * H + m * 60_000; // last week
     const send = (batch_seq, events) =>
       fetch(BASE + "/ingest", {
         method: "POST",
@@ -221,38 +230,38 @@ async function run() {
         body: JSON.stringify({ batch_seq, events }),
       });
 
-    // Tuesday 09:00 active, heartbeats to 16:00, no idle — machine vanished.
+    // Last Wednesday 09:00 active, heartbeat at 16:00, no idle — machine vanished.
     await send(30, [
-      { ts: at(24 + 9), kind: "active" },
-      { ts: at(24 + 16), kind: "heartbeat" },
+      { ts: lw(2 * 24 + 9), kind: "active" },
+      { ts: lw(2 * 24 + 16), kind: "heartbeat" },
     ]);
-    let wk = await j("/api/week?offset=0");
+    let wk = await j("/api/week?offset=-1");
     const grace = 15 * 60_000; // 3 × the 5-minute heartbeat interval
     const bounded = 7 * H + grace - 30 * 60_000; // 09:00→16:15, minus lunch
     check(
       "open span is bounded at the last heartbeat, not run to now",
-      wk.days[1].workedMs === bounded,
-      `got ${wk.days[1].workedMs / H}h, expected ${bounded / H}h`,
+      wk.days[2].workedMs === bounded,
+      `got ${wk.days[2].workedMs / H}h, expected ${bounded / H}h`,
     );
     check(
       "the open span does not bleed into the next day",
-      wk.days[2].workedMs === 0,
-      `Wednesday got ${wk.days[2].workedMs / H}h`,
+      wk.days[3].workedMs === 0,
+      `Thursday got ${wk.days[3].workedMs / H}h`,
     );
 
     // The daemon comes back and reports what actually happened.
-    await send(31, [{ ts: at(24 + 16) + 4 * 60_000, kind: "idle" }]);
-    wk = await j("/api/week?offset=0");
+    await send(31, [{ ts: lw(2 * 24 + 16, 4), kind: "idle" }]);
+    wk = await j("/api/week?offset=-1");
     const actual = 7 * H + 4 * 60_000 - 30 * 60_000; // 09:00→16:04, minus lunch
     check(
       "the machine's own idle supersedes the inferred bound",
-      wk.days[1].workedMs === actual,
-      `got ${wk.days[1].workedMs / H}h, expected ${actual / H}h`,
+      wk.days[2].workedMs === actual,
+      `got ${wk.days[2].workedMs / H}h, expected ${actual / H}h`,
     );
     check(
       "the following day is still empty after the repair",
-      wk.days[2].workedMs === 0,
-      `Wednesday got ${wk.days[2].workedMs / H}h`,
+      wk.days[3].workedMs === 0,
+      `Thursday got ${wk.days[3].workedMs / H}h`,
     );
   }
 
