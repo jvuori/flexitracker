@@ -1,6 +1,6 @@
 # FlexiTracker
 
-Personal flextime/saldo tracker. A minimal Rust daemon captures computer
+Personal flextime/saldo tracker. A minimal Python daemon captures computer
 activity; a serverless Cloudflare backend turns it into trustworthy per-week
 working-time numbers to transcribe into an official time system.
 
@@ -13,7 +13,7 @@ for the full architecture, specs, and task plan.
 | Path        | What |
 |-------------|------|
 | `backend/`  | Cloudflare Worker (TypeScript + Hono) and the per-account Durable Object (SQLite). |
-| `daemon/`   | Rust workspace: `flexitracker-core` (shared wire schema) and `flexitracker-daemon` (the agent). |
+| `daemon-py/`| Pure-Python daemon (the agent): state machine, outbox, sender, ctypes idle. Installs with `uv`. |
 | `ui/`       | Node-free HTMX static assets for Cloudflare Pages. |
 | `docs/`     | Cross-cutting docs, incl. the [wire schema](./docs/wire-schema.md). |
 
@@ -29,12 +29,12 @@ npm test            # vitest
 npm run dev         # wrangler dev (local simulation)
 ```
 
-Daemon:
+Daemon (Python, via uv):
 
 ```bash
-cd daemon
-cargo build
-cargo test
+cd daemon-py
+uv sync
+uv run pytest      # unit tests + the 24 behavioural vectors
 ```
 
 ## Deploy

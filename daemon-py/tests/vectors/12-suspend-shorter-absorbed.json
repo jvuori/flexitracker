@@ -1,0 +1,13 @@
+{
+  "name": "suspend_shorter_than_min_inactivity_is_absorbed",
+  "description": "A suspend shorter than min_inactivity is absorbed, as a brief reboot is.",
+  "steps": [
+    { "op": "tick", "now": 0, "idle_ms": 0 },
+    { "op": "tick", "now": 40000, "idle_ms": 0 },
+    { "op": "tick", "now": 300000, "idle_ms": 0, "mono_elapsed_ms": 15000 }
+  ],
+  "expected": [
+    { "kind": "active", "ts": 0 }
+  ],
+  "expected_final": { "reported_state": "Active" }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "idle_is_backdated_to_last_input",
+  "description": "Confirmed idle is back-dated to the last input, not the observation time.",
+  "steps": [
+    { "op": "tick", "now": 0, "idle_ms": 0 },
+    { "op": "tick", "now": 60000, "idle_ms": 0 },
+    { "op": "tick", "now": 720000, "idle_ms": 660000 }
+  ],
+  "expected": [
+    { "kind": "active", "ts": 0 },
+    { "kind": "idle", "ts": 60000 }
+  ],
+  "expected_final": { "reported_state": "Idle" }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "idle_backdating_is_exact_not_poll_quantised",
+  "description": "Idle is back-dated to the true stop time (now - idle_ms), not the last fresh poll.",
+  "steps": [
+    { "op": "tick", "now": 0, "idle_ms": 0 },
+    { "op": "tick", "now": 40000, "idle_ms": 0 },
+    { "op": "patch", "last_active_time": 15000 },
+    { "op": "tick", "now": 615000, "idle_ms": 608000 }
+  ],
+  "expected": [
+    { "kind": "active", "ts": 0 },
+    { "kind": "idle", "ts": 7000 }
+  ],
+  "expected_final": { "reported_state": "Idle" }
+}

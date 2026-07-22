@@ -1,0 +1,12 @@
+{
+  "name": "a_gap_of_min_activity_kills_the_pending_return",
+  "description": "A gap of min_activity clears the pending return; a fresh poll then starts a new clock.",
+  "initial": { "reported_state": "Idle" },
+  "steps": [
+    { "op": "tick", "now": 15000, "idle_ms": 5000 },
+    { "op": "tick", "now": 50000, "idle_ms": 35000 },
+    { "op": "tick", "now": 60000, "idle_ms": 2000 }
+  ],
+  "expected": [],
+  "expected_final": { "reported_state": "Idle", "pending_active_since": 58000 }
+}

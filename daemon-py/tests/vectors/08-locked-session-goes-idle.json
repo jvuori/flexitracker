@@ -1,0 +1,14 @@
+{
+  "name": "locked_session_goes_idle",
+  "description": "A locked session goes idle, back-dated to the last real input, not the lock moment.",
+  "steps": [
+    { "op": "tick", "now": 0, "idle_ms": 0 },
+    { "op": "tick", "now": 40000, "idle_ms": 0 },
+    { "op": "tick", "now": 50000, "idle_ms": 0, "locked": true }
+  ],
+  "expected": [
+    { "kind": "active", "ts": 0 },
+    { "kind": "idle", "ts": 40000 }
+  ],
+  "expected_final": { "reported_state": "Idle" }
+}

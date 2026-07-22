@@ -1,94 +1,113 @@
 name: Release
 
-# Cut a daemon release from a version tag: build Windows + Linux binaries and
-# publish them to a GitHub Release under stable asset names. Runs ONLY from a
-# tag (never on a plain push), and only after the unit tests pass.
+# Publishing a GitHub Release (which creates the vX.Y.Z tag) triggers this:
+#   - build the Python wheel + sdist and publish to PyPI (keyless OIDC trusted
+#     publishing) so users can `uv tool install flexitracker`;
+#   - build a standalone single-file executable for Windows + Linux and attach it
+#     to the Release under stable asset names for the download buttons.
 #
-#   git tag v0.1.0 && git push origin v0.1.0
+# The version is derived from the tag by hatch-vcs (see daemon-py/pyproject.toml),
+# so the tag IS the version — nothing to keep in sync. Use the `/release` command
+# (or `gh release create vX.Y.Z`) to cut a release; do not push tags by hand.
+#
+# One-time bootstrap (like the Cloudflare IdP): configure this repo as a PyPI
+# Trusted Publisher for the `flexitracker` project (no stored token needed).
 on:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]
 
 permissions:
-  contents: write # create/update the GitHub Release
+  contents: write # attach assets to the Release
 
 jobs:
   test:
     uses: ./.github/workflows/ci.yml
 
-  # Enforce that the tag matches the workspace version so `--version`, the tag,
-  # and the published assets never drift.
-  version:
+  # Build the wheel + sdist, attach to the Release, and publish to PyPI.
+  wheel:
+    needs: test
     runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: write
+      id-token: write # OIDC for PyPI trusted publishing
     steps:
       - uses: actions/checkout@v4
-      - name: Tag matches Cargo.toml version
+        with:
+          fetch-depth: 0 # full history + tags so hatch-vcs derives the version
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - name: Bake the PROD backend URL into the wheel
+        # Rewrites BAKED_BACKEND_URL so a user supplies only a key. If PROD_BASE_URL
+        # is unset the URL stays empty and users pass --backend-url (self-hosters).
+        env:
+          PROD_BASE_URL: ${{ vars.PROD_BASE_URL }}
         run: |
-          CARGO_VER=$(grep -m1 '^version' daemon/Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
-          TAG_VER="${GITHUB_REF_NAME#v}"
-          echo "cargo=$CARGO_VER tag=$TAG_VER"
-          [ "$CARGO_VER" = "$TAG_VER" ] || { echo "::error::tag $TAG_VER != Cargo.toml $CARGO_VER"; exit 1; }
+          f=daemon-py/src/flexitracker/_backend.py
+          sed -i "s|^BAKED_BACKEND_URL = \"\"|BAKED_BACKEND_URL = \"${PROD_BASE_URL}\"|" "$f"
+          grep BAKED_BACKEND_URL "$f"
+      - name: Build wheel + sdist
+        working-directory: daemon-py
+        run: uv build
+      - name: Attach to the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: daemon-py/dist/*
+          fail_on_unmatched_files: false
+      - name: Publish to PyPI (trusted publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: daemon-py/dist/
 
-  build:
-    needs: [test, version]
+  # Build the standalone single-file executable per OS and attach it to the Release.
+  exe:
+    needs: test
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            artifact: linux
+            asset: flexitracker-linux-x86_64
           - os: windows-latest
-            artifact: windows
+            asset: flexitracker-windows-x86_64.exe
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Install X libraries (Linux)
-        if: matrix.artifact == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y libxss-dev libx11-dev
-
-      - name: Build release
-        working-directory: daemon
-        # The backend URL is baked in so users only paste a key (option_env!).
-        # Set the PROD_BASE_URL repo variable; if unset, users pass --backend-url.
+        with:
+          fetch-depth: 0 # so the frozen exe's bundled metadata carries the tag version
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - name: Bake the PROD backend URL into the executable
+        shell: bash
         env:
-          FLEXITRACKER_BACKEND_URL: ${{ vars.PROD_BASE_URL }}
-        run: cargo build --release
-
-      - name: Package (Linux)
-        if: matrix.artifact == 'linux'
-        working-directory: daemon
+          PROD_BASE_URL: ${{ vars.PROD_BASE_URL }}
         run: |
-          mkdir -p dist/flexitracker
-          cp target/release/flexitracker dist/flexitracker/
-          cp install/linux/install.sh dist/flexitracker/
-          cp install/flexitracker.service dist/flexitracker/
-          cp install/README.md dist/flexitracker/
-          tar -C dist -czf flexitracker-linux-x86_64.tar.gz flexitracker
-
-      - name: Install Inno Setup (Windows)
-        if: matrix.artifact == 'windows'
-        run: choco install innosetup --no-progress -y
-
-      - name: Package (Windows)
-        if: matrix.artifact == 'windows'
-        working-directory: daemon
-        shell: pwsh
+          f=daemon-py/src/flexitracker/_backend.py
+          sed -i "s|^BAKED_BACKEND_URL = \"\"|BAKED_BACKEND_URL = \"${PROD_BASE_URL}\"|" "$f"
+      - name: Freeze single-file executable
+        working-directory: daemon-py
+        # --copy-metadata bundles the dist-info so `--version` (importlib.metadata)
+        # resolves the tag version inside the frozen exe. Exclude stdlib the daemon
+        # never imports to keep the download lean.
         run: |
-          New-Item -ItemType Directory -Force -Path dist/flexitracker | Out-Null
-          Copy-Item target/release/flexitracker.exe dist/flexitracker/
-          Copy-Item install/install.ps1 dist/flexitracker/
-          Copy-Item install/README.md dist/flexitracker/
-          Compress-Archive -Path dist/flexitracker/* -DestinationPath flexitracker-windows-x86_64.zip -Force
-          & "${Env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" install/flexitracker.iss
-          Copy-Item install/Output/flexitracker-setup.exe flexitracker-setup.exe
-
-      - name: Publish to the GitHub Release
+          uv sync --group build
+          uv run pyinstaller --onefile --name flexitracker --paths src --console \
+            --copy-metadata flexitracker \
+            --exclude-module tkinter --exclude-module unittest --exclude-module test \
+            --exclude-module pydoc --exclude-module lib2to3 --exclude-module sqlite3 \
+            --exclude-module distutils --exclude-module xmlrpc --exclude-module pdb \
+            pyinstaller_entry.py
+      - name: Rename to the stable asset name
+        shell: bash
+        working-directory: daemon-py
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            mv dist/flexitracker.exe "dist/${{ matrix.asset }}"
+          else
+            mv dist/flexitracker "dist/${{ matrix.asset }}"
+          fi
+      - name: Attach to the GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            daemon/flexitracker-linux-x86_64.tar.gz
-            daemon/flexitracker-windows-x86_64.zip
-            daemon/flexitracker-setup.exe
+          files: daemon-py/dist/${{ matrix.asset }}
           fail_on_unmatched_files: false

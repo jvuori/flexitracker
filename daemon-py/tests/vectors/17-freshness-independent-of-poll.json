@@ -1,0 +1,11 @@
+{
+  "name": "freshness_is_independent_of_the_poll_interval",
+  "description": "A large poll interval must not widen what counts as recent input; 4-min-old input is not active.",
+  "thresholds": { "poll_ms": 300000, "min_inactivity_ms": 600000, "min_activity_ms": 30000, "heartbeat_ms": 300000 },
+  "initial": { "reported_state": "Idle" },
+  "steps": [
+    { "op": "tick", "now": 1000000, "idle_ms": 240000 }
+  ],
+  "expected": [],
+  "expected_final": { "reported_state": "Idle" }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "large_timestamps_within_i64",
+  "description": "Timestamps near the i64 range must pass through identically (Python bigint vs Rust i64).",
+  "initial": { "reported_state": "Active", "last_heartbeat": 9000000000000000000 },
+  "steps": [
+    { "op": "recover", "now": 9000000000000600000 }
+  ],
+  "expected": [
+    { "kind": "idle", "ts": 9000000000000000000 }
+  ],
+  "expected_final": { "reported_state": "Idle" }
+}

@@ -4,9 +4,12 @@ node_modules/
 dist/
 *.log
 
-# Rust
-/daemon/target/
-target/
+# Python daemon (uv / build / freeze artifacts)
+.venv/
+__pycache__/
+*.pyc
+daemon-py/build/
+*.spec
 
 # Local simulation state
 .dev-state/

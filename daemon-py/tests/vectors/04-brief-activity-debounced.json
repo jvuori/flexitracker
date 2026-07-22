@@ -1,0 +1,10 @@
+{
+  "name": "brief_activity_during_idle_is_debounced",
+  "description": "A sub-min_activity blip while idle must not report active.",
+  "steps": [
+    { "op": "tick", "now": 100000, "idle_ms": 0 },
+    { "op": "tick", "now": 110000, "idle_ms": 60000 }
+  ],
+  "expected": [],
+  "expected_final": { "reported_state": "Idle" }
+}

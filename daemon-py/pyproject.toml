@@ -1,0 +1,41 @@
+[project]
+name = "flexitracker"
+# Version is derived from the git tag by hatch-vcs at build time, so the tag IS
+# the version — the release tag and the wheel can never drift. Untagged builds
+# get a development version (which `flexitracker --version` reports as 0.0.0).
+dynamic = ["version"]
+description = "FlexiTracker activity daemon — pure-Python."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+# Pure-Python, near-stdlib on purpose: no compiled extension so `uv tool install`
+# needs no C toolchain and no admin rights (see openspec/specs/daemon-parity).
+# OS idle/lock detection uses ctypes (stdlib); HTTP uses urllib (stdlib);
+# TOML read uses tomllib (stdlib, 3.11+); TOML write is a tiny local emitter.
+dependencies = []
+
+[project.scripts]
+flexitracker = "flexitracker.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+# Freezing tool for the standalone single-file executable (GitHub Release asset,
+# for machines that permit executables). Not a runtime dependency; used only by
+# the release build. See daemon-py/pyinstaller_entry.py and release.yml.
+build = ["pyinstaller>=6"]
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+# Version from the VCS tag. `root = ".."` points setuptools-scm at the repo root,
+# since this package lives in a subdirectory (its own pyproject would otherwise
+# not find the repo's .git and would fall back). `no-local-version` keeps the
+# version PyPI-acceptable (no +local segment); `fallback_version` lets a checkout
+# with no tags/history still build.
+[tool.hatch.version]
+source = "vcs"
+raw-options = { root = "..", local_scheme = "no-local-version", fallback_version = "0.0.0" }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/flexitracker"]

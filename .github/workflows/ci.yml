@@ -27,13 +27,15 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: daemon
+        working-directory: daemon-py
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
-      - run: sudo apt-get update && sudo apt-get install -y libxss-dev libx11-dev
-      - run: cargo fmt --all --check
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test
+          fetch-depth: 0 # tags/history for hatch-vcs version resolution
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --group dev
+      # Unit tests + the 24 behavioural vectors (daemon-py/tests/vectors).
+      - run: uv run pytest -q

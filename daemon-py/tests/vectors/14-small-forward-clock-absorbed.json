@@ -1,0 +1,13 @@
+{
+  "name": "small_forward_clock_step_is_absorbed",
+  "description": "A small forward clock step (NTP correction) below min_inactivity is absorbed.",
+  "steps": [
+    { "op": "tick", "now": 0, "idle_ms": 0 },
+    { "op": "tick", "now": 40000, "idle_ms": 0 },
+    { "op": "tick", "now": 70000, "idle_ms": 0, "mono_elapsed_ms": 15000 }
+  ],
+  "expected": [
+    { "kind": "active", "ts": 0 }
+  ],
+  "expected_final": { "reported_state": "Active" }
+}

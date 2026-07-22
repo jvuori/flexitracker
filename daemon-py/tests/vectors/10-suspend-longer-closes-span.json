@@ -1,0 +1,14 @@
+{
+  "name": "suspend_longer_than_min_inactivity_closes_the_span",
+  "description": "A suspend longer than min_inactivity (wall vs monotonic divergence) closes the span at the last local evidence.",
+  "steps": [
+    { "op": "tick", "now": 0, "idle_ms": 0 },
+    { "op": "tick", "now": 40000, "idle_ms": 0 },
+    { "op": "tick", "now": 10800000, "idle_ms": 0, "mono_elapsed_ms": 15000 }
+  ],
+  "expected": [
+    { "kind": "active", "ts": 0 },
+    { "kind": "idle", "ts": 40000 }
+  ],
+  "expected_final": { "reported_state": "Idle" }
+}

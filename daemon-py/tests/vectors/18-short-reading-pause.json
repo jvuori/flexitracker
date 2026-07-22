@@ -1,0 +1,14 @@
+{
+  "name": "a_short_reading_pause_does_not_restart_the_return_to_work_clock",
+  "description": "Short pauses while returning to work must not restart the min_activity accumulator.",
+  "initial": { "reported_state": "Idle" },
+  "steps": [
+    { "op": "tick", "now": 15000, "idle_ms": 10000 },
+    { "op": "tick", "now": 30000, "idle_ms": 25000 },
+    { "op": "tick", "now": 45000, "idle_ms": 5000 }
+  ],
+  "expected": [
+    { "kind": "active", "ts": 5000 }
+  ],
+  "expected_final": { "reported_state": "Active" }
+}

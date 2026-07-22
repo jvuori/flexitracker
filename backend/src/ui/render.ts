@@ -195,9 +195,11 @@ const view=document.getElementById('view');
 document.getElementById('who').textContent=S.email;
 let TZ='UTC';
 const DAYNAMES=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-// Daemon downloads (published per release on the public repo).
+// Standalone daemon executables (published per release on the public repo).
+// The recommended install is "uv tool install flexitracker"; these are the
+// bundled-Python fallback for machines that allow running executables.
 const REL='https://github.com/jvuori/flexitracker/releases/latest/download';
-const DL={winSetup:REL+'/flexitracker-setup.exe',winZip:REL+'/flexitracker-windows-x86_64.zip',linux:REL+'/flexitracker-linux-x86_64.tar.gz'};
+const DL={win:REL+'/flexitracker-windows-x86_64.exe',linux:REL+'/flexitracker-linux-x86_64'};
 function detectOS(){const p=((navigator.userAgentData&&navigator.userAgentData.platform)||navigator.platform||navigator.userAgent||'').toLowerCase();
  if(p.indexOf('win')>=0)return'windows';if(p.indexOf('mac')>=0)return'mac';if(p.indexOf('linux')>=0&&p.indexOf('android')<0)return'linux';return'other';}
 
@@ -559,23 +561,30 @@ function renderSettings(s){
 // flow. macOS is not published yet.
 function renderSetup(cmd,accessKey){
  const os=detectOS();
- const dl=os==='windows'
-   ?'<a class="act" href="'+DL.winSetup+'">Download Windows installer</a> <a class="act" href="'+DL.winZip+'">Portable .zip</a>'
+ const standalone=os==='windows'
+   ?'<a class="act" href="'+DL.win+'">standalone .exe</a>'
    :os==='linux'
-   ?'<a class="act" href="'+DL.linux+'">Download Linux (.tar.gz)</a>'
+   ?'<a class="act" href="'+DL.linux+'">standalone binary</a>'
    :os==='mac'
-   ?'<span class="muted">macOS builds aren\'t available yet — use Windows or Linux for now.</span>'
-   :'<a class="act" href="'+DL.winSetup+'">Windows installer</a> <a class="act" href="'+DL.linux+'">Linux (.tar.gz)</a>';
+   ?''
+   :'<a class="act" href="'+DL.win+'">Windows .exe</a> <a class="act" href="'+DL.linux+'">Linux binary</a>';
+ const install='uv tool install flexitracker';
  const cfg='flexitracker configure --key '+accessKey;
+ const copy=(btn,src,txt)=>{const b=cmd.querySelector(btn);b.onclick=async()=>{try{await navigator.clipboard.writeText(txt);b.textContent='Copied ✓';}catch{const r=document.createRange();r.selectNode(cmd.querySelector(src));getSelection().removeAllRanges();getSelection().addRange(r);}};};
  cmd.innerHTML=
   '<p class="muted">Copy this key now — it is shown only once.</p>'+
-  '<p><b>1. Download</b> &nbsp;'+dl+'</p>'+
-  '<p><b>2. Authorize</b> — run once (or paste the key into the Windows installer):</p>'+
+  '<p><b>1. Install</b> — recommended (no admin, works where .exe is blocked):</p>'+
+  '<div class="row"><code id="instcmd">'+install+'</code> <button class="act" id="copyinst">Copy</button></div>'+
+  (standalone
+    ?'<p class="muted">Or, on a machine that allows executables, download a '+standalone+' (it bundles Python — no uv needed).</p>'
+    :'<p class="muted">macOS builds aren\'t available yet — use Windows or Linux.</p>')+
+  '<p><b>2. Authorize</b> — run once:</p>'+
   '<div class="row"><code id="cfgcmd">'+cfg+'</code> <button class="act" id="copycfg">Copy</button></div>'+
   '<p><b>3. Verify</b> — confirms connectivity, sends no time data:</p><code>flexitracker test</code>'+
   '<p class="muted">It then auto-starts on login. Full per-OS steps (and the unsigned-app prompt): '+
-  '<a href="https://github.com/jvuori/flexitracker/blob/master/daemon/install/README.md" target="_blank" rel="noopener">install guide</a>.</p>';
- cmd.querySelector('#copycfg').onclick=async()=>{try{await navigator.clipboard.writeText(cfg);cmd.querySelector('#copycfg').textContent='Copied ✓';}catch{const r=document.createRange();r.selectNode(cmd.querySelector('#cfgcmd'));getSelection().removeAllRanges();getSelection().addRange(r);}};
+  '<a href="https://github.com/jvuori/flexitracker/blob/master/daemon-py/install/README.md" target="_blank" rel="noopener">install guide</a>.</p>';
+ copy('#copyinst','#instcmd',install);
+ copy('#copycfg','#cfgcmd',cfg);
 }
 
 function renderMachines(m){

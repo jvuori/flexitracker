@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-**FlexiTracker** — a personal flextime/saldo tracker. A minimal Rust daemon captures computer activity (idle/active transitions); a serverless Cloudflare backend turns it into trustworthy per-week working-time numbers the user transcribes into an employer's official system.
+**FlexiTracker** — a personal flextime/saldo tracker. A minimal pure-Python daemon captures computer activity (idle/active transitions); a serverless Cloudflare backend turns it into trustworthy per-week working-time numbers the user transcribes into an employer's official system.
 
 The full architecture, requirements, and rationale live in `openspec/changes/archive/2026-07-12-flexi-worker-cloud/` (`proposal.md`, `design.md`, `specs/`, `tasks.md`) and the per-capability specs under `openspec/specs/`. **Read those before implementing**, and keep them in sync when decisions change. Significant changes get a new OpenSpec proposal before code.
 
@@ -48,15 +48,31 @@ This project MUST never incur any charge — not now, not after any trial or 12-
 
 ## Releasing the daemon
 
-- `git tag vX.Y.Z && git push origin vX.Y.Z` → `release.yml` builds Windows +
-  Linux and publishes a GitHub Release. The tag **must** match the version in
-  `daemon/Cargo.toml` (a job enforces this) — bump the workspace version first.
-- Assets use stable names so `releases/latest/download/<asset>` is durable, and the
-  web onboarding links to exactly those names — **renaming an asset breaks the
+- The daemon is a pure-Python package (`daemon-py/`). The **primary** distribution
+  is the wheel published to **PyPI** (`uv tool install flexitracker`); a standalone
+  single-file executable (bundled Python, built with PyInstaller) is attached to the
+  GitHub Release for machines that permit running executables.
+- **Cut a release with the `/release` command** (or `gh release create vX.Y.Z`):
+  publishing a **GitHub Release** creates the tag and triggers `release.yml`
+  (`on: release: published`), which publishes the wheel to PyPI (keyless OIDC
+  **trusted publishing** — no stored token) and attaches the wheel/sdist plus the
+  Windows + Linux standalone executables to the Release. **Never push a tag by
+  hand** and never edit a version string.
+- **The version IS the tag** — `daemon-py/pyproject.toml` has no version; hatch-vcs
+  derives it from the git tag at build time (`dynamic = ["version"]`,
+  `[tool.hatch.version] source = "vcs"`, `raw-options = { root = ".." }` because the
+  package is in a subdirectory). So the tag, the wheel, the executables, and
+  `flexitracker --version` can never drift. A development (untagged) build reports
+  `flexitracker --version` = `0.0.0`.
+- Executable assets use stable names so `releases/latest/download/<asset>` is durable,
+  and the web onboarding links to exactly those names — **renaming an asset breaks the
   download buttons** in `backend/src/ui/render.ts`. Keep the two in sync.
-- The PROD backend URL is compiled in via `option_env!("FLEXITRACKER_BACKEND_URL")`
-  from the `PROD_BASE_URL` variable, so a user runs only
+- The PROD backend URL is baked into the wheel/exe at build time (release.yml rewrites
+  `daemon-py/src/flexitracker/_backend.py::BAKED_BACKEND_URL` from the `PROD_BASE_URL`
+  variable; the `FLEXITRACKER_BACKEND_URL` env var overrides it), so a user runs only
   `flexitracker configure --key <KEY>` then `flexitracker test`.
+- **One-time bootstrap:** configure this repo as a PyPI **Trusted Publisher** for the
+  `flexitracker` project (analogous to the Google IdP bootstrap) — no secret is stored.
 
 ## Cloudflare changes go through GitHub Actions (mandatory)
 
@@ -84,7 +100,7 @@ This project MUST never incur any charge — not now, not after any trial or 12-
 
 ## Testing
 
-- **Unit tests** where appropriate: Rust (`cargo test`) for the daemon and rules; TypeScript unit tests for Worker/DO rules (gap-bridging, span-pairing, saldo).
+- **Unit tests** where appropriate: Python (`uv run pytest`, including the 24 behavioural vectors in `daemon-py/tests/vectors/`) for the daemon and its state machine; TypeScript unit tests for Worker/DO rules (gap-bridging, span-pairing, saldo).
 - **Basic E2E integration tests** run post-QA-deploy and must validate ingest → seal → week view → correction round-trip. These gate PROD.
 
 ## QA test data (fixtures) & the PROD data firewall
@@ -112,8 +128,8 @@ This project MUST never incur any charge — not now, not after any trial or 12-
 
 ## Stack & conventions
 
-- **Backend:** TypeScript + Hono on Cloudflare Workers; per-account Durable Object with embedded SQLite. **Daemon:** Rust. **UI:** vanilla JS / HTMX on Cloudflare Pages. **GA primitives only — no beta.**
-- If any Python tooling is ever added, use `uv` exclusively (per global rules) — but prefer Rust/TS to keep the toolchain uniform.
+- **Backend:** TypeScript + Hono on Cloudflare Workers; per-account Durable Object with embedded SQLite. **Daemon:** pure Python (stdlib-only, `ctypes` for OS idle), managed with `uv`. **UI:** vanilla JS / HTMX on Cloudflare Pages. **GA primitives only — no beta.**
+- All Python tooling uses `uv` exclusively (per global rules): `uv sync`, `uv run pytest`, `uv build`. No `pip`/`python`/`virtualenv`.
 
 ## Known pitfalls (root causes — keep this updated)
 

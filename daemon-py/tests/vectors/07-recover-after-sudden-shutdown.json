@@ -1,0 +1,12 @@
+{
+  "name": "recover_after_sudden_shutdown",
+  "description": "Startup recovery of a long downtime closes the span back-dated to the last heartbeat.",
+  "initial": { "reported_state": "Active", "last_heartbeat": 57600000 },
+  "steps": [
+    { "op": "recover", "now": 115200000 }
+  ],
+  "expected": [
+    { "kind": "idle", "ts": 57600000 }
+  ],
+  "expected_final": { "reported_state": "Idle" }
+}

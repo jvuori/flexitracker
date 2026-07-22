@@ -1,10 +1,10 @@
 # Wire schema (daemon ↔ backend)
 
-Single source of truth for the payload exchanged between the Rust daemon and the
+Single source of truth for the payload exchanged between the Python daemon and the
 Cloudflare Worker. Kept in sync by hand in two places:
 
 - TypeScript: `backend/src/schema.ts`
-- Rust: `daemon/crates/flexitracker-core/src/lib.rs`
+- Python: `daemon-py/src/flexitracker/core.py`
 
 Any change here MUST be applied to both. The payload is intentionally tiny.
 

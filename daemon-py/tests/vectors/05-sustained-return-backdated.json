@@ -1,0 +1,13 @@
+{
+  "name": "sustained_return_reports_active_backdated",
+  "description": "A sustained return from idle reports active back-dated to when input resumed.",
+  "initial": { "reported_state": "Idle" },
+  "steps": [
+    { "op": "tick", "now": 100000, "idle_ms": 0 },
+    { "op": "tick", "now": 140000, "idle_ms": 0 }
+  ],
+  "expected": [
+    { "kind": "active", "ts": 100000 }
+  ],
+  "expected_final": { "reported_state": "Active" }
+}

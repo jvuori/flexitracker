@@ -1,0 +1,12 @@
+[Unit]
+Description=FlexiTracker activity daemon
+After=graphical-session.target
+
+[Service]
+# Runs the entrypoint that `uv tool install flexitracker` puts on PATH.
+ExecStart=%h/.local/bin/flexitracker
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

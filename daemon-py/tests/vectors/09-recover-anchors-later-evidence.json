@@ -1,0 +1,12 @@
+{
+  "name": "recover_anchors_to_the_later_evidence_not_the_heartbeat",
+  "description": "Recovery anchors to the later of last heartbeat and last active time.",
+  "initial": { "reported_state": "Active", "last_heartbeat": 57600000, "last_active_time": 57840000 },
+  "steps": [
+    { "op": "recover", "now": 115200000 }
+  ],
+  "expected": [
+    { "kind": "idle", "ts": 57840000 }
+  ],
+  "expected_final": { "reported_state": "Idle" }
+}

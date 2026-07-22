@@ -1,0 +1,12 @@
+{
+  "name": "activation_is_debounced_then_backdated",
+  "description": "Active is confirmed only after min_activity and back-dated to when input started.",
+  "steps": [
+    { "op": "tick", "now": 1000, "idle_ms": 0 },
+    { "op": "tick", "now": 41000, "idle_ms": 0 }
+  ],
+  "expected": [
+    { "kind": "active", "ts": 1000 }
+  ],
+  "expected_final": { "reported_state": "Active" }
+}

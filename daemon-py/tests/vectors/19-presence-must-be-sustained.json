@@ -1,0 +1,13 @@
+{
+  "name": "presence_must_still_be_sustained_to_confirm",
+  "description": "A single touch must not confirm a return to work.",
+  "initial": { "reported_state": "Idle" },
+  "steps": [
+    { "op": "tick", "now": 15000, "idle_ms": 15000 },
+    { "op": "tick", "now": 30000, "idle_ms": 30000 },
+    { "op": "tick", "now": 45000, "idle_ms": 45000 },
+    { "op": "tick", "now": 60000, "idle_ms": 60000 }
+  ],
+  "expected": [],
+  "expected_final": { "reported_state": "Idle" }
+}

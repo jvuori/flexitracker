@@ -1,0 +1,15 @@
+{
+  "name": "backwards_clock_step_closes_nothing_and_never_emits_below_the_watermark",
+  "description": "A backwards clock is a correction, not downtime; a later idle is clamped to the emit watermark.",
+  "steps": [
+    { "op": "tick", "now": 600000, "idle_ms": 0 },
+    { "op": "tick", "now": 640000, "idle_ms": 0 },
+    { "op": "tick", "now": -3000000, "idle_ms": 0, "mono_elapsed_ms": 15000 },
+    { "op": "tick", "now": -2300000, "idle_ms": 700000 }
+  ],
+  "expected": [
+    { "kind": "active", "ts": 600000 },
+    { "kind": "idle", "ts": 600000 }
+  ],
+  "expected_final": { "reported_state": "Idle" }
+}

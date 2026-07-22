@@ -1,0 +1,16 @@
+{
+  "name": "all_emitted_kinds_serialize_lowercase",
+  "description": "The three emitted kinds (active, idle, heartbeat) must serialize lowercase and identically across implementations.",
+  "steps": [
+    { "op": "tick", "now": 0, "idle_ms": 0 },
+    { "op": "tick", "now": 40000, "idle_ms": 0 },
+    { "op": "tick", "now": 340000, "idle_ms": 0 },
+    { "op": "tick", "now": 1000000, "idle_ms": 600000 }
+  ],
+  "expected": [
+    { "kind": "active", "ts": 0 },
+    { "kind": "heartbeat", "ts": 340000 },
+    { "kind": "idle", "ts": 400000 }
+  ],
+  "expected_final": { "reported_state": "Idle" }
+}
