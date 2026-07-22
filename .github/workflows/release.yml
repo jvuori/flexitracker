@@ -67,7 +67,11 @@ jobs:
       - name: Attach to the GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: daemon-py/dist/*
+          # Explicit extensions so the .gitignore uv writes into dist/ is not
+          # attached (GitHub would rename it to default.gitignore).
+          files: |
+            daemon-py/dist/*.whl
+            daemon-py/dist/*.tar.gz
           fail_on_unmatched_files: false
       - name: Publish to PyPI (trusted publishing)
         uses: pypa/gh-action-pypi-publish@release/v1
