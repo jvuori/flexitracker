@@ -45,6 +45,6 @@
 ## 7. Verify end to end
 
 - [x] 7.1 `uv run pytest` green (unit tests + the 24 vectors).
-- [ ] 7.2 Run the Python daemon against the local stack (`--simulate`) and confirm a seeded day renders correctly in the web UI.
+- [x] 7.2 Run the Python daemon against the local stack (`--simulate`) and confirm a seeded day renders correctly in the web UI. Verified against local `wrangler dev`: minted a throwaway key, ran `flexitracker --key ... --backend-url http://localhost:8787 --simulate` (a temp `--config` path, never touching the real config), and confirmed in a real browser (Playwright) that the seeded day renders correctly — 5h worked (two "sensor" bars, 8-10 and 13-16), the 10-13 gap flagged reviewable, correct balance. (Note: browser-checking a *different* dev identity than the client's unauthenticated-fetch fallback shows an empty week — a local-dev-stub quirk, not a bug; using the identity that matches `DEV_IDENTITY`/`?dev=` resolved it.)
 - [x] 7.3 `uv tool install` from the built wheel yields a working `flexitracker configure`/`test` on a clean environment with no compiler and no admin rights.
 - [ ] 7.4 The frozen exe, if shipped, runs `configure`/`test` on a machine without Python installed.
