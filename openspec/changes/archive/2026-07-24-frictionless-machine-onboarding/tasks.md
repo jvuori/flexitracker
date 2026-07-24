@@ -18,7 +18,7 @@
 ## 3. Cloudflare Access provisioning
 
 - [x] 3.1 Extend `backend/tools/setup-access-bypass.mjs` to add a bypass app for `/device/token` (QA-vs-PROD derived from hostname), keeping `/device/authorize` protected.
-- [ ] 3.2 Wire it into `provision-access.yml`; dispatch for QA and PROD hostnames; confirm propagation before exercising the flow. — `provision-access.yml` already calls `setup-access-bypass.mjs` generically (no per-path wiring needed, confirmed by reading the workflow), so the code side is done. The actual **dispatch** is a live Cloudflare-affecting GitHub Actions run against QA/PROD, which is outside what an implementation pass should do unattended (CLAUDE.md: Cloudflare changes go through version-controlled CI, and this session doesn't run those unprompted) — left for the user to trigger (`gh workflow run provision-access.yml -f hostname=<qa-host>`, then again for prod) before `/device/*` will work against live QA/PROD. Until then `/device/token` 404s behind the Access login page there (the classic `{}` trap), same as any newly-added bypass path.
+- [x] 3.2 Wire it into `provision-access.yml`; dispatch for QA and PROD hostnames; confirm propagation before exercising the flow. — `provision-access.yml` already calls `setup-access-bypass.mjs` generically, no per-path wiring needed. Dispatched by the user for both hostnames (`gh workflow run provision-access.yml -f hostname=...`); both runs succeeded and the logs confirmed `device/token` bypass apps were created for QA and PROD. The subsequent push's QA e2e (including the new device-flow checks) passed and auto-promoted to PROD, and the real daemon's `flexitracker login` was confirmed working end-to-end against live PROD.
 
 ## 4. Daemon `login` command
 
