@@ -20,9 +20,11 @@ class SenderError(Exception):
     pass
 
 
-def _request(url: str, key: str, method: str, body: Optional[dict]) -> dict:
+def _request(url: str, key: Optional[str], method: str, body: Optional[dict]) -> dict:
     data = None
-    headers = {"authorization": f"Bearer {key}"}
+    headers = {}
+    if key:
+        headers["authorization"] = f"Bearer {key}"
     if body is not None:
         data = json.dumps(body).encode("utf-8")
         headers["content-type"] = "application/json"
@@ -79,6 +81,20 @@ def whoami(base: str, key: str) -> WhoAmI:
         status=data["status"],
         active=data["active"],
     )
+
+
+def device_token(base: str, code: str) -> dict:
+    """Exchange a one-time device-authorization code for the minted access key
+    (the `login` browser flow's final step). No access key is sent — the code
+    itself is the authorization; the endpoint is Access-bypassed like /ingest.
+    """
+    url = f"{base.rstrip('/')}/device/token"
+    try:
+        return _request(url, None, "POST", {"code": code})
+    except urllib.error.HTTPError as e:
+        raise SenderError(f"server returned {e.code}") from e
+    except urllib.error.URLError as e:
+        raise SenderError(str(e.reason)) from e
 
 
 def fetch_thresholds(base: str, key: str, poll_sec: int) -> ThresholdCfg:

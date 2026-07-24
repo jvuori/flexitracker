@@ -70,7 +70,7 @@ This project MUST never incur any charge — not now, not after any trial or 12-
 - The PROD backend URL is baked into the wheel/exe at build time (release.yml rewrites
   `daemon-py/src/flexitracker/_backend.py::BAKED_BACKEND_URL` from the `PROD_BASE_URL`
   variable; the `FLEXITRACKER_BACKEND_URL` env var overrides it), so a user runs only
-  `flexitracker configure --key <KEY>` then `flexitracker test`.
+  `flexitracker login` then `flexitracker test`.
 - **One-time bootstrap:** configure this repo as a PyPI **Trusted Publisher** for the
   `flexitracker` project (analogous to the Google IdP bootstrap) — no secret is stored.
 
@@ -147,12 +147,15 @@ This project MUST never incur any charge — not now, not after any trial or 12-
   inherit top-level `[vars]`**. Fix: set every var explicitly in `[env.qa.vars]`
   / `[env.prod.vars]`. The `wrangler deploy` warning "vars.X exists at the top
   level, but not on env.qa.vars" is the tell — don't ignore it.
-- **A JSON `fetch` to `/ingest`, `/config`, `/health`, or `/test/*` returns `{}` /
-  undefined fields (with `r.ok` true), then a later call 401s with a bogus
-  token** → the path is **not bypassed in Cloudflare Access**, so the request got
-  the HTML login page (HTTP 200) which parsed to `{}`. Fix: those non-browser
+- **A JSON `fetch` to `/ingest`, `/config`, `/health`, `/device/token`, or `/test/*`
+  returns `{}` / undefined fields (with `r.ok` true), then a later call 401s with a
+  bogus token** → the path is **not bypassed in Cloudflare Access**, so the request
+  got the HTML login page (HTTP 200) which parsed to `{}`. Fix: those non-browser
   paths need Access "Bypass / Everyone" apps — run `provision-access.yml`.
-  Rule of thumb: an unexpected `{}` from a JSON fetch on Cloudflare = a login
+  `/device/token` (the daemon `login` command's code-exchange step) needs this
+  bypass too — `/device/authorize` deliberately does NOT, since that's the
+  browser step where Google sign-in must happen. Rule of thumb: an unexpected
+  `{}` from a JSON fetch on Cloudflare = a login
   redirect on a non-bypassed path.
 - **Local totals look wrong (e.g. a correction you didn't add persists)** →
   `wrangler dev --local` persists to `.wrangler/state` and shares it across ports

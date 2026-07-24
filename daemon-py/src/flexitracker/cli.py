@@ -1,8 +1,9 @@
 """CLI + daemon loop.
 
 Fail-fast: unexpected conditions exit with a clear message rather than being
-silently absorbed. Subcommands: `configure` (authorize + self-test), `test`
-(connectivity check, sends no data), and the default daemon run.
+silently absorbed. Subcommands: `login` (authorize + self-test, browser by
+default or `--key` for headless/scripted setups), `test` (connectivity check,
+sends no data), and the default daemon run.
 """
 
 from __future__ import annotations
@@ -18,7 +19,8 @@ from typing import Optional
 from ._backend import default_backend_url
 from .config import Config
 from .core import machine_descriptor
-from .idle import Sample, SimulatedIdle, platform_source
+from .idle import Sample, platform_source
+from .login import LoginError, browser_login
 from .outbox import Outbox
 from .sender import SenderError, fetch_thresholds, post_batch, whoami
 from .state_machine import Persisted, StateMachine, Tick
@@ -26,12 +28,14 @@ from .state_machine import Persisted, StateMachine, Tick
 HELP = """flexitracker — activity tracking daemon
 
 USAGE:
-    flexitracker configure [--key KEY] [--backend-url URL]   Authorize this machine
+    flexitracker login [--name LABEL] [--backend-url URL]    Authorize this machine (opens a browser)
+    flexitracker login --key KEY [--backend-url URL]         Authorize with a pasted key (no browser)
     flexitracker test                                        Check connectivity (sends no data)
     flexitracker [OPTIONS]                                   Run the daemon
 
 OPTIONS:
-    --key, --account-key KEY   Per-machine access key (saved to config)
+    --key, --account-key KEY   Per-machine access key for `login --key` (saved to config)
+    --name LABEL        Machine label for the browser `login` flow (default: hostname)
     --backend-url URL   Backend base URL (defaults to the built-in one)
     --config PATH       Config file path (default: ~/.config/flexitracker/config.toml)
     --simulate          Post a synthetic day through the real pipeline and exit
@@ -59,8 +63,9 @@ def machine_desc() -> dict:
 
 class Args:
     def __init__(self) -> None:
-        self.cmd = "daemon"  # daemon | configure | test
+        self.cmd = "daemon"  # daemon | login | test
         self.account_key: Optional[str] = None
+        self.name: Optional[str] = None
         self.backend_url: Optional[str] = None
         self.config_path: Optional[Path] = None
         self.simulate = False
@@ -78,12 +83,14 @@ def parse_args(argv: list) -> Args:
             raise ValueError(f"{flag} requires a value")
 
     for arg in it:
-        if arg == "configure":
-            a.cmd = "configure"
+        if arg == "login":
+            a.cmd = "login"
         elif arg in ("test", "--check"):
             a.cmd = "test"
         elif arg in ("--account-key", "--key"):
             a.account_key = take(arg)
+        elif arg == "--name":
+            a.name = take(arg)
         elif arg == "--backend-url":
             a.backend_url = take(arg)
         elif arg == "--config":
@@ -103,12 +110,6 @@ def parse_args(argv: list) -> Args:
         else:
             raise ValueError(f"unknown argument: {arg}")
     return a
-
-
-def prompt(msg: str) -> str:
-    sys.stdout.write(msg)
-    sys.stdout.flush()
-    return sys.stdin.readline().strip()
 
 
 def self_test(cfg: Config) -> int:
@@ -215,28 +216,40 @@ def run(argv: list) -> int:
     if not cfg.backend_url:
         cfg.backend_url = default_backend_url()
 
-    if args.cmd == "configure":
-        if not cfg.access_key:
-            cfg.access_key = prompt("Paste your machine access key: ")
-        if not cfg.access_key:
-            print("error: no access key provided", file=sys.stderr)
-            return 1
+    if args.cmd == "login":
         if not cfg.backend_url:
             print("error: no backend url (pass --backend-url; releases have one built in)", file=sys.stderr)
             return 1
+        if args.account_key:
+            # Manual/headless form: cfg.access_key is already set above from
+            # args.account_key. No browser involved.
+            cfg.save(config_path)
+            print(f"Saved config to {config_path}.")
+            return self_test(cfg)
+        # Default: browser-based device authorization. No key is ever entered
+        # or displayed — a failure here leaves config untouched (nothing is
+        # saved until browser_login returns successfully).
+        label = args.name or machine_desc()["hostname"]
+        try:
+            access_key, machine_id = browser_login(cfg.backend_url, label)
+        except LoginError as e:
+            print(f"error: login failed: {e}", file=sys.stderr)
+            return 1
+        cfg.access_key = access_key
+        cfg.machine_id = machine_id
         cfg.save(config_path)
         print(f"Saved config to {config_path}.")
         return self_test(cfg)
 
     if args.cmd == "test":
         if not cfg.access_key or not cfg.backend_url:
-            print("error: not configured — run `flexitracker configure --key <KEY>` first", file=sys.stderr)
+            print("error: not configured — run `flexitracker login` first", file=sys.stderr)
             return 1
         return self_test(cfg)
 
     # Daemon
     if not cfg.access_key or not cfg.backend_url:
-        print("error: missing access key or backend url (run `flexitracker configure --key <KEY>`)", file=sys.stderr)
+        print("error: missing access key or backend url (run `flexitracker login`)", file=sys.stderr)
         return 1
     cfg.save(config_path)
 

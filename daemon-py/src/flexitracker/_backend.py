@@ -2,7 +2,7 @@
 
 Mirrors the Rust `option_env!("FLEXITRACKER_BACKEND_URL")`: the release pipeline
 rewrites `BAKED_BACKEND_URL` (from the PROD_BASE_URL variable) so a user runs only
-`flexitracker configure --key <KEY>`. The `FLEXITRACKER_BACKEND_URL` environment
+`flexitracker login`. The `FLEXITRACKER_BACKEND_URL` environment
 variable overrides it, and `--backend-url` overrides both.
 """
 

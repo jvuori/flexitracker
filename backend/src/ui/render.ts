@@ -45,6 +45,63 @@ export function renderApp(
 </html>`;
 }
 
+function escHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function devicePage(title: string, bodyHtml: string): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>FlexiTracker — ${escHtml(title)}</title>
+<style>${CSS}</style>
+</head>
+<body>
+<header><h1>FlexiTracker</h1></header>
+<main><div class="gate card"><h2>${escHtml(title)}</h2>${bodyHtml}</div></main>
+</body>
+</html>`;
+}
+
+/**
+ * The daemon `login` browser flow lands here (Access-protected, so Google
+ * sign-in already happened by the time this renders). A plain HTML form posts
+ * back to the same path — no client JS needed for a one-shot approval.
+ */
+export function renderDeviceApproval(
+  label: string,
+  cb: string,
+  state: string,
+  machineId: string | null,
+  conflict: { lastSeen: number } | null,
+): string {
+  const hidden = (name: string, value: string) =>
+    `<input type="hidden" name="${name}" value="${escHtml(value)}">`;
+  const fields =
+    hidden("label", label) + hidden("cb", cb) + hidden("state", state) + hidden("machine_id", machineId ?? "");
+  const body = conflict
+    ? `<p>A machine named <b>${escHtml(label)}</b> is already active — last seen ${escHtml(new Date(conflict.lastSeen).toLocaleString())}.</p>
+       <p class="muted">Replace it (its daemon will stop being accepted) or create a separate machine instead.</p>
+       <form method="post" action="/device/authorize">${fields}
+         <button class="act" name="decision" value="replace">Replace it</button>
+         <button class="act" name="decision" value="separate">Create a separate machine</button>
+       </form>`
+    : `<p>Authorize a machine named <b>${escHtml(label)}</b> to send activity data to your account.</p>
+       <form method="post" action="/device/authorize">${fields}
+         <button class="act" name="decision" value="approve">Approve</button>
+       </form>`;
+  return devicePage("Authorize machine", body);
+}
+
+export function renderDeviceNotActive(status: string): string {
+  return devicePage(
+    "Account not active",
+    `<p>Your account is <b>${escHtml(status)}</b> — ask an administrator to approve it before authorizing a machine.</p>`,
+  );
+}
+
 const CSS = `
 :root{color-scheme:light dark;--bg:#fff;--fg:#111;--muted:#666;--line:#ddd;--line2:#cfd3da;
 --panel:#f6f8fb;--panel2:#eef1f6;--tick:#aab2be;--tick-strong:#7c8593;--tick-faint:#cdd3dc;--idle:#c9ced6;
@@ -215,6 +272,11 @@ function bal(ms){const r=hm(Math.abs(ms));return ms>0?'+'+r:ms<0?'-'+r:r;}
 function round30(ms){return Math.round(ms/1800000)*1800000;}
 function clock(ts){return new Intl.DateTimeFormat('en-GB',{timeZone:TZ,hour:'2-digit',minute:'2-digit'}).format(ts);}
 function el(html){const t=document.createElement('template');t.innerHTML=html.trim();return t.content.firstChild;}
+// Machine labels and registration notes are free-text set by the account
+// owner (and viewable by an admin in the admin console) — escape before
+// interpolating into an HTML string, unlike the rest of this file's data
+// which is server-computed.
+function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 ${TIME_HELPERS_SRC}
 
 const tabs=document.getElementById('tabs');
@@ -556,10 +618,14 @@ function renderSettings(s){
  foot.append(save,err);view.append(foot);
 }
 
-// Build the OS-detected setup instructions for a freshly issued key: download,
-// configure (key pre-filled), test — the "download → configure → test → auto-start"
-// flow. macOS is not published yet.
-function renderSetup(cmd,accessKey){
+// Build the OS-detected setup instructions: install, log in (browser, no key
+// to copy — the recommended path), verify, auto-start. A collapsed fallback
+// below offers 'login --key' with a key minted on demand, for headless or
+// scripted machines. Doesn't need a key up front — unlike the old
+// download-then-configure flow, 'login' mints its own via the device-authorize
+// page, so this renders unconditionally rather than behind an "Add machine"
+// click (Machines tab is no longer the required onboarding entry point).
+function renderInstallSteps(box){
  const os=detectOS();
  const standalone=os==='windows'
    ?'<a class="act" href="'+DL.win+'">standalone .exe</a>'
@@ -569,38 +635,78 @@ function renderSetup(cmd,accessKey){
    ?''
    :'<a class="act" href="'+DL.win+'">Windows .exe</a> <a class="act" href="'+DL.linux+'">Linux binary</a>';
  const install='uv tool install flexitracker';
- const cfg='flexitracker configure --key '+accessKey;
- const copy=(btn,src,txt)=>{const b=cmd.querySelector(btn);b.onclick=async()=>{try{await navigator.clipboard.writeText(txt);b.textContent='Copied ✓';}catch{const r=document.createRange();r.selectNode(cmd.querySelector(src));getSelection().removeAllRanges();getSelection().addRange(r);}};};
- cmd.innerHTML=
-  '<p class="muted">Copy this key now — it is shown only once.</p>'+
+ const login='flexitracker login';
+ const copy=(btn,src,txt)=>{const b=box.querySelector(btn);b.onclick=async()=>{try{await navigator.clipboard.writeText(txt);b.textContent='Copied ✓';}catch{const r=document.createRange();r.selectNode(box.querySelector(src));getSelection().removeAllRanges();getSelection().addRange(r);}};};
+ box.innerHTML=
   '<p><b>1. Install</b> — recommended (no admin, works where .exe is blocked):</p>'+
   '<div class="row"><code id="instcmd">'+install+'</code> <button class="act" id="copyinst">Copy</button></div>'+
   (standalone
     ?'<p class="muted">Or, on a machine that allows executables, download a '+standalone+' (it bundles Python — no uv needed).</p>'
     :'<p class="muted">macOS builds aren\'t available yet — use Windows or Linux.</p>')+
-  '<p><b>2. Authorize</b> — run once:</p>'+
-  '<div class="row"><code id="cfgcmd">'+cfg+'</code> <button class="act" id="copycfg">Copy</button></div>'+
+  '<p><b>2. Log in</b> — opens your browser to authorize; you never see or copy a key:</p>'+
+  '<div class="row"><code id="logincmd">'+login+'</code> <button class="act" id="copylogin">Copy</button></div>'+
   '<p><b>3. Verify</b> — confirms connectivity, sends no time data:</p><code>flexitracker test</code>'+
   '<p class="muted">It then auto-starts on login. Full per-OS steps (and the unsigned-app prompt): '+
-  '<a href="https://github.com/jvuori/flexitracker/blob/master/daemon-py/install/README.md" target="_blank" rel="noopener">install guide</a>.</p>';
+  '<a href="https://github.com/jvuori/flexitracker/blob/master/daemon-py/install/README.md" target="_blank" rel="noopener">install guide</a>.</p>'+
+  '<details class="adv"><summary class="muted">Headless or scripted machine? Authorize with a pasted key instead</summary>'+
+  '<div class="row"><input id="mlabel" placeholder="Machine label (e.g. Work laptop)"><button class="act" id="issue">Get a key</button></div>'+
+  '<div id="manualcmd"></div></details>';
  copy('#copyinst','#instcmd',install);
- copy('#copycfg','#cfgcmd',cfg);
+ copy('#copylogin','#logincmd',login);
+ box.querySelector('#issue').onclick=async()=>{
+  const label=box.querySelector('#mlabel').value||null;
+  const k=await api('/machines',{method:'POST',body:JSON.stringify({label})});
+  const cfg='flexitracker login --key '+k.access_key;
+  const out=box.querySelector('#manualcmd');
+  out.innerHTML='<p class="muted">Copy this key now — it is shown only once.</p>'+
+   '<div class="row"><code id="cfgcmd">'+cfg+'</code> <button class="act" id="copycfg">Copy</button></div>';
+  const b=out.querySelector('#copycfg');
+  b.onclick=async()=>{try{await navigator.clipboard.writeText(cfg);b.textContent='Copied ✓';}catch{const r=document.createRange();r.selectNode(out.querySelector('#cfgcmd'));getSelection().removeAllRanges();getSelection().addRange(r);}};
+ };
 }
 
 function renderMachines(m){
  view.innerHTML='<h2>Machines</h2>';
- view.append(el('<p class="muted">Set up a machine: add it below, download the daemon, authorize it with the key, verify with <code>flexitracker test</code>, and it auto-starts on login.</p>'));
- const add=el('<div class="card"><div class="row"><input id="label" placeholder="Machine label (e.g. Laptop)"><button class="act" id="issue">+ Add machine</button></div><div id="cmd"></div></div>');
- view.append(add);
- document.getElementById('issue').onclick=async()=>{const label=document.getElementById('label').value||null;const k=await api('/machines',{method:'POST',body:JSON.stringify({label})});
-  renderSetup(document.getElementById('cmd'),k.access_key);};
- const t=el('<table><tr><th>Label</th><th>Machine</th><th>Last seen</th><th>Key</th><th></th></tr></table>');
- const seen={};for(const mc of m.machines)seen[mc.machine_id]=mc;
- for(const k of m.keys){const mc=seen[k.machine_id];
-  const tr=el('<tr><td>'+(k.label||'—')+'</td><td class="muted">'+(mc&&mc.hostname?mc.hostname:k.machine_id.slice(0,8))+'</td>'+
+ view.append(el('<p class="muted">Install the daemon and run <code>flexitracker login</code> to authorize it — no visit here required. This tab is for viewing, renaming, and revoking machines you\'ve already set up.</p>'));
+ const setup=el('<div class="card"></div>');
+ view.append(setup);
+ renderInstallSteps(setup);
+
+ // One row per Machine (not per key): merge the registry's durable Machine
+ // labels, the DO's per-machine hostname/last-seen, and each Machine's
+ // current key. A Machine predating this feature (minted via the old "Add
+ // machine" flow, no registry Machine row yet) still shows, keyed by its
+ // key's machine_id/label.
+ const doSeen={};for(const mc of m.machines)doSeen[mc.machine_id]=mc;
+ const keysByMachine={};for(const k of m.keys){(keysByMachine[k.machine_id]??=[]).push(k);}
+ const rows=new Map();
+ for(const rm of (m.registryMachines||[]))rows.set(rm.machine_id,{machine_id:rm.machine_id,label:rm.label});
+ for(const k of m.keys){if(!rows.has(k.machine_id))rows.set(k.machine_id,{machine_id:k.machine_id,label:k.label});}
+
+ view.append(el('<h3>Your machines</h3>'));
+ if(!rows.size){view.append(el('<p class="muted">No machines yet — follow the steps above.</p>'));return;}
+ const t=el('<table><tr><th>Label</th><th>Hostname</th><th>Last seen</th><th>Key</th><th></th></tr></table>');
+ for(const row of rows.values()){
+  const mc=doSeen[row.machine_id];
+  const keys=(keysByMachine[row.machine_id]||[]).slice().sort((a,b)=>b.created_at-a.created_at);
+  const activeKey=keys.find(k=>!k.revoked_at);
+  const tr=el('<tr><td>'+escHtml(row.label||'—')+'</td><td class="muted">'+(mc&&mc.hostname?escHtml(mc.hostname):'—')+'</td>'+
    '<td class="muted">'+(mc?new Date(mc.last_seen).toLocaleString():'never')+'</td>'+
-   '<td>'+(k.revoked_at?'<span class="muted">revoked</span>':'active')+'</td><td></td></tr>');
-  if(!k.revoked_at){const b=el('<button class="act">Revoke</button>');b.onclick=async()=>{await api('/machines/'+k.access_key+'/revoke',{method:'POST'});TABS.machines();};tr.lastChild.append(b);}
+   '<td>'+(activeKey?'active':'<span class="muted">revoked</span>')+'</td><td></td></tr>');
+  const cell=tr.lastChild;
+  const rn=el('<button class="act">Rename</button>');
+  rn.onclick=async()=>{
+   const next=prompt('Rename machine',row.label||'');
+   if(!next)return;
+   await api('/machines/'+row.machine_id+'/rename',{method:'POST',body:JSON.stringify({label:next})});
+   TABS.machines();
+  };
+  cell.append(rn);
+  if(activeKey){
+   const b=el('<button class="act" style="margin-left:.35rem">Revoke</button>');
+   b.onclick=async()=>{await api('/machines/'+activeKey.access_key+'/revoke',{method:'POST'});TABS.machines();};
+   cell.append(b);
+  }
   t.append(tr);}
  view.append(t);
 }
@@ -616,7 +722,7 @@ async function renderAdmin(){
   const rt=el('<table><tr><th>Email</th><th>Requested</th><th>Note</th><th></th></tr></table>');
   for(const a of regs){
    const when=a.requested_at?new Date(a.requested_at).toLocaleString():'—';
-   const tr=el('<tr><td>'+a.email+'</td><td class="muted">'+when+'</td><td class="muted">'+(a.note||'')+'</td><td></td></tr>');
+   const tr=el('<tr><td>'+a.email+'</td><td class="muted">'+when+'</td><td class="muted">'+escHtml(a.note||'')+'</td><td></td></tr>');
    const ap=el('<button class="act">Approve</button>');
    ap.onclick=async()=>{await api('/admin/registrations/'+a.account_id+'/approve',{method:'POST'});renderAdmin();};
    const rj=el('<button class="act" style="margin-left:.35rem">Reject</button>');
@@ -664,7 +770,7 @@ async function renderAdminKeys(a){
  view.append(el('<button class="act" id="back">← accounts</button>'));
  const t=el('<table><tr><th>Label</th><th>Machine</th><th>Status</th><th></th></tr></table>');
  for(const k of keys){
-  const tr=el('<tr><td>'+(k.label||'—')+'</td><td class="muted">'+k.machine_id.slice(0,8)+'</td><td>'+(k.revoked_at?'<span class="muted">revoked</span>':'active')+'</td><td></td></tr>');
+  const tr=el('<tr><td>'+escHtml(k.label||'—')+'</td><td class="muted">'+k.machine_id.slice(0,8)+'</td><td>'+(k.revoked_at?'<span class="muted">revoked</span>':'active')+'</td><td></td></tr>');
   if(!k.revoked_at){const b=el('<button class="act">Revoke</button>');b.onclick=async()=>{await api('/admin/accounts/'+a.account_id+'/keys/'+k.access_key+'/revoke',{method:'POST'});renderAdminKeys(a);};tr.lastChild.append(b);}
   t.append(tr);
  }

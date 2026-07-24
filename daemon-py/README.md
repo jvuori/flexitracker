@@ -23,9 +23,10 @@ Windows SmartScreen trust step.
 ## Use
 
 ```bash
-flexitracker configure --key <ACCESS_KEY>   # authorize this machine, then self-test
-flexitracker test                            # connectivity check, sends no data
-flexitracker                                 # run the daemon
+flexitracker login                          # authorize this machine in a browser, then self-test
+flexitracker login --key <ACCESS_KEY>       # headless/scripted: authorize with a pasted key instead
+flexitracker test                           # connectivity check, sends no data
+flexitracker                                # run the daemon
 ```
 
 ## Develop

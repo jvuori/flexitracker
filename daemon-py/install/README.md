@@ -8,9 +8,14 @@ it works on managed machines that block unsigned executables.
 
 ```bash
 uv tool install flexitracker
-flexitracker configure --key <YOUR_ACCESS_KEY>
+flexitracker login
 flexitracker test
 ```
+
+`login` opens your browser to authorize the machine — sign in, approve, and the
+key lands in the config automatically; you never see or paste it. On a
+headless or scripted box, use `flexitracker login --key <YOUR_ACCESS_KEY>`
+with a key from the web UI's "Add machine" button instead.
 
 Then enable auto-start on login:
 
@@ -25,7 +30,7 @@ If your machine permits running executables, download the standalone
 **Releases** page — it bundles its own Python runtime, so nothing else is needed.
 
 ```bat
-flexitracker.exe configure --key <YOUR_ACCESS_KEY>
+flexitracker.exe login
 flexitracker.exe test
 ```
 

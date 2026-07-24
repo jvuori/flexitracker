@@ -2,22 +2,31 @@ import { Hono } from "hono";
 import type { Env } from "./env";
 import { parseEventBatch } from "./schema";
 import {
+  activeKeyForMachine,
   approve,
+  createDeviceAuthCode,
+  createMachine,
   disable,
   ensureAccountRow,
   ensureKey,
   ensureRegistrySchema,
+  findMachine,
   getAccount,
   getOrCreateAccount,
   issueKey,
+  issueKeyForMachine,
   listAccounts,
   listAccountsWithStats,
   listAudit,
   listKeys,
+  listMachinesForAccount,
   listRegistrations,
   recordAudit,
+  redeemDeviceAuthCode,
   reject,
+  renameMachine,
   resolveKey,
+  resolveOrCreateMachine,
   revokeKey,
   setRequested,
   whoamiForKey,
@@ -27,8 +36,9 @@ import {
 import { isAdmin, requireIdentity, UnauthorizedError, type Identity } from "./identity";
 import { DAEMON_PROTOCOL } from "./worktime/settings";
 import type { Settings } from "./worktime/settings";
+import { graceMs } from "./worktime/worktime";
 import { notifyAdmin } from "./mail";
-import { renderApp } from "./ui/render";
+import { renderApp, renderDeviceApproval, renderDeviceNotActive } from "./ui/render";
 
 export { TenantDO } from "./tenant-do";
 export type { Env } from "./env";
@@ -227,11 +237,15 @@ api.delete("/corrections/:id", async (c) => {
 
 api.get("/machines", async (c) => {
   const accountId = c.get("accountId");
-  const [keys, machines] = await Promise.all([
+  // `machines` is the DO's per-machine hostname/last-seen (ingest-derived);
+  // `registryMachines` is the durable Machine entity (label, survives key
+  // rotation) — the client merges both with `keys` into one row per machine.
+  const [keys, machines, registryMachines] = await Promise.all([
     listKeys(c.env.REGISTRY, accountId),
     tenant(c.env, accountId).listMachines(),
+    listMachinesForAccount(c.env.REGISTRY, accountId),
   ]);
-  return c.json({ keys, machines });
+  return c.json({ keys, machines, registryMachines });
 });
 
 api.post("/machines", async (c) => {
@@ -246,6 +260,15 @@ api.post("/machines", async (c) => {
 api.post("/machines/:key/revoke", async (c) => {
   const ok = await revokeKey(c.env.REGISTRY, c.get("accountId"), c.req.param("key"));
   return c.json({ ok });
+});
+
+api.post("/machines/:machineId/rename", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { label?: string };
+  const label = (body.label ?? "").trim();
+  if (!label) return c.json({ error: "label required" }, 400);
+  const ok = await renameMachine(c.env.REGISTRY, c.get("accountId"), c.req.param("machineId"), label);
+  if (!ok) return c.json({ error: "unknown machine" }, 404);
+  return c.json({ ok: true });
 });
 
 // ---- admin (allowlist re-check) ----------------------------------------
@@ -395,6 +418,139 @@ app.get("/", async (c) => {
     if (e instanceof UnauthorizedError) return c.text("Sign in required.", 401);
     throw e;
   }
+});
+
+// ---- daemon device-authorization (browser loopback flow) ---------------
+// GET renders the approval page (no mutation); POST performs the actual key
+// issuance after the human's explicit action, then redirects to the daemon's
+// loopback callback with a one-time code (never the key itself). Both are
+// reached by the daemon opening a URL in the system browser, so — like "/" —
+// they authenticate directly with requireIdentity rather than through the
+// /api sub-app (which 403s an inactive account before it can see why).
+// `/device/authorize` stays Access-protected (this is where Google login
+// happens); `/device/token` below is Access-bypassed, like /ingest.
+
+/** Only 127.0.0.1:<port> — the loopback listener's own bind address. An
+ *  unvalidated `cb` would be an open redirect that leaks the one-time
+ *  authorization code (and thus the access key) to an attacker-controlled
+ *  host; see design.md D2. */
+function isLoopbackCallback(cb: string): boolean {
+  return /^127\.0\.0\.1:[0-9]{1,5}$/.test(cb);
+}
+
+/** Active, recently-seen conflict for a specific Machine, or null. "Recently
+ *  seen" reuses the same grace window worktime computation treats a machine
+ *  as still alive under (3x heartbeat). Keyed by `machine_id`, not label:
+ *  label resolution can drift between the approval page render and the
+ *  submit (e.g. a concurrent "separate" choice adds another same-labeled
+ *  Machine), so once a Machine is identified the rest of the flow must keep
+ *  referring to that exact id, never re-resolve by label. */
+async function deviceConflict(
+  env: Env,
+  accountId: string,
+  machineId: string,
+): Promise<{ lastSeen: number } | null> {
+  const activeKey = await activeKeyForMachine(env.REGISTRY, accountId, machineId);
+  if (!activeKey) return null;
+  const machines = await tenant(env, accountId).listMachines();
+  const row = machines.find((m) => m.machine_id === machineId);
+  if (!row) return null; // key active but this machine has never actually ingested — nothing live to conflict with
+  if (Date.now() - row.last_seen >= graceMs()) return null;
+  return { lastSeen: row.last_seen };
+}
+
+app.get("/device/authorize", async (c) => {
+  await ready(c.env);
+  let identity: Identity;
+  try {
+    identity = await requireIdentity(c.req.raw, c.env);
+  } catch (e) {
+    if (e instanceof UnauthorizedError) return c.text("Sign in required.", 401);
+    throw e;
+  }
+  const label = c.req.query("label")?.trim();
+  const cb = c.req.query("cb") ?? "";
+  const state = c.req.query("state") ?? "";
+  if (!label) return c.text("missing label", 400);
+  if (!state) return c.text("missing state", 400);
+  if (!isLoopbackCallback(cb)) return c.text("invalid callback address", 400);
+
+  const accountId = await accountFor(c.env, identity);
+  const acct = await getAccount(c.env.REGISTRY, accountId);
+  if (acct?.status !== "active") return c.html(renderDeviceNotActive(acct?.status ?? "pending"));
+
+  const existing = await findMachine(c.env.REGISTRY, accountId, label);
+  const conflict = existing ? await deviceConflict(c.env, accountId, existing.machine_id) : null;
+  return c.html(renderDeviceApproval(label, cb, state, existing?.machine_id ?? null, conflict));
+});
+
+app.post("/device/authorize", async (c) => {
+  await ready(c.env);
+  let identity: Identity;
+  try {
+    identity = await requireIdentity(c.req.raw, c.env);
+  } catch (e) {
+    if (e instanceof UnauthorizedError) return c.text("Sign in required.", 401);
+    throw e;
+  }
+  const form = await c.req.formData();
+  const label = String(form.get("label") ?? "").trim();
+  const cb = String(form.get("cb") ?? "");
+  const state = String(form.get("state") ?? "");
+  const decision = String(form.get("decision") ?? "");
+  // The exact Machine shown on the approval page (empty when GET found none).
+  const pinnedMachineId = String(form.get("machine_id") ?? "").trim() || null;
+  if (!label) return c.text("missing label", 400);
+  if (!state) return c.text("missing state", 400);
+  if (!isLoopbackCallback(cb)) return c.text("invalid callback address", 400);
+  if (decision !== "approve" && decision !== "replace" && decision !== "separate") {
+    return c.text("invalid decision", 400);
+  }
+
+  const accountId = await accountFor(c.env, identity);
+  const acct = await getAccount(c.env.REGISTRY, accountId);
+  if (acct?.status !== "active") return c.text("account not active", 403);
+
+  let machineId: string;
+  if (decision === "separate") {
+    machineId = (await createMachine(c.env.REGISTRY, accountId, label)).machine_id;
+  } else if (pinnedMachineId) {
+    // Reuse exactly the Machine the approval page showed — never re-resolve by
+    // label (see deviceConflict's doc comment for why that can retarget).
+    if (decision === "approve") {
+      // Re-check server-side: never trust the client's notion of "no
+      // conflict". "approve" is only valid when there truly is none; a live
+      // conflict forces an explicit replace-or-separate choice.
+      const conflict = await deviceConflict(c.env, accountId, pinnedMachineId);
+      if (conflict) {
+        return c.text("a machine with this label is already active — choose replace or separate", 409);
+      }
+    }
+    machineId = pinnedMachineId;
+  } else {
+    machineId = (await resolveOrCreateMachine(c.env.REGISTRY, accountId, label)).machine_id;
+  }
+
+  const key = await issueKeyForMachine(c.env.REGISTRY, accountId, machineId, label);
+  const code = await createDeviceAuthCode(c.env.REGISTRY, accountId, key.access_key, machineId);
+  const dest = `http://${cb}/?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
+  return c.redirect(dest, 302);
+});
+
+app.post("/device/token", async (c) => {
+  await ready(c.env);
+  const body = (await c.req.json().catch(() => ({}))) as { code?: string };
+  if (!body.code) return c.json({ error: "code required" }, 400);
+  const redeemed = await redeemDeviceAuthCode(c.env.REGISTRY, body.code);
+  if (!redeemed) return c.json({ error: "invalid, expired, or already-used code" }, 400);
+  // Re-check active: the account could have been disabled in the moment
+  // between approval (which already gated on active) and this exchange. The
+  // code is spent either way — a re-approval is required on retry.
+  const acct = await getAccount(c.env.REGISTRY, redeemed.account_id);
+  if (acct?.status !== "active") {
+    return c.json({ error: "account not active", status: acct?.status ?? "unknown" }, 403);
+  }
+  return c.json({ access_key: redeemed.access_key, machine_id: redeemed.machine_id });
 });
 
 export default app;

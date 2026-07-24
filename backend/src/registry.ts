@@ -36,6 +36,18 @@ export interface MachineKey {
   revoked_at: number | null;
 }
 
+/**
+ * A durable Machine: `machine_id` is stable across key rotations and hardware
+ * replacements, distinct from the (rotatable, revocable) key that currently
+ * authorizes it. See `resolveOrCreateMachine`/`findMachine`.
+ */
+export interface Machine {
+  machine_id: string;
+  account_id: string;
+  label: string;
+  created_at: number;
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS account (
   account_id   TEXT PRIMARY KEY,
@@ -57,6 +69,29 @@ CREATE TABLE IF NOT EXISTS machine_key (
   revoked_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS machine_key_account ON machine_key (account_id);
+-- Deliberately no UNIQUE(account_id, label): choosing "create a separate
+-- machine" for a label that already resolves to a Machine is a supported
+-- outcome (frictionless-machine-onboarding D6) and yields two Machine rows
+-- sharing a label on purpose.
+CREATE TABLE IF NOT EXISTS machine (
+  machine_id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL,
+  label      TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS machine_account_label ON machine (account_id, label);
+-- Short-lived, single-use device-authorization codes (the /device/authorize ->
+-- /device/token handshake). Lives in D1 (strongly consistent), never KV, so an
+-- exchange immediately following approval can never read stale.
+CREATE TABLE IF NOT EXISTS device_auth (
+  code        TEXT PRIMARY KEY,
+  account_id  TEXT NOT NULL,
+  access_key  TEXT NOT NULL,
+  machine_id  TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  expires_at  INTEGER NOT NULL,
+  redeemed_at INTEGER
+);
 CREATE TABLE IF NOT EXISTS admin_audit (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   at          INTEGER NOT NULL,
@@ -353,6 +388,226 @@ export async function resolveKey(
     .bind(accessKey)
     .first<KeyResolution>();
   return row ?? null;
+}
+
+/**
+ * Find the Machine a label currently resolves to, without creating one.
+ * Read-only — used to render the approval page's conflict state before any
+ * mutation happens.
+ *
+ * Falls back to a pre-existing `machine_key` row sharing that label when no
+ * `machine` row matches: a key minted before this Machine entity existed (via
+ * the web "Add machine" flow) is, in effect, its own single-key Machine, so a
+ * later `login --name` with the same label continues it instead of forking a
+ * new identity.
+ */
+export async function findMachine(
+  db: D1Database,
+  accountId: string,
+  label: string,
+): Promise<Machine | null> {
+  const row = await db
+    .prepare("SELECT * FROM machine WHERE account_id = ? AND label = ? ORDER BY created_at DESC LIMIT 1")
+    .bind(accountId, label)
+    .first<Machine>();
+  if (row) return row;
+
+  const legacy = await db
+    .prepare(
+      "SELECT machine_id, account_id, label, created_at FROM machine_key WHERE account_id = ? AND label = ? ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(accountId, label)
+    .first<{ machine_id: string; account_id: string; label: string | null; created_at: number }>();
+  if (!legacy) return null;
+  return { machine_id: legacy.machine_id, account_id: legacy.account_id, label, created_at: legacy.created_at };
+}
+
+/**
+ * Resolve a label to its existing Machine, or create one. Label resolution is
+ * how a replacement laptop keeps the same logical Machine ("Work laptop") so
+ * its event stream and history continue under one `machine_id`.
+ */
+export async function resolveOrCreateMachine(
+  db: D1Database,
+  accountId: string,
+  label: string,
+): Promise<Machine> {
+  const existing = await findMachine(db, accountId, label);
+  if (existing) {
+    // Backfill the `machine` row for a legacy label match so future lookups
+    // hit it directly; idempotent (INSERT OR IGNORE) and harmless if the row
+    // was created by a concurrent resolve or already existed.
+    await db
+      .prepare("INSERT OR IGNORE INTO machine (machine_id, account_id, label, created_at) VALUES (?, ?, ?, ?)")
+      .bind(existing.machine_id, accountId, label, existing.created_at)
+      .run();
+    return existing;
+  }
+  return createMachine(db, accountId, label);
+}
+
+/** Always create a fresh Machine, even if the label matches an existing one
+ *  (the explicit "create a separate machine" choice). */
+export async function createMachine(db: D1Database, accountId: string, label: string): Promise<Machine> {
+  const machine: Machine = {
+    machine_id: crypto.randomUUID(),
+    account_id: accountId,
+    label,
+    created_at: Date.now(),
+  };
+  await db
+    .prepare("INSERT INTO machine (machine_id, account_id, label, created_at) VALUES (?, ?, ?, ?)")
+    .bind(machine.machine_id, machine.account_id, machine.label, machine.created_at)
+    .run();
+  return machine;
+}
+
+/** All Machines the registry knows about for an account (Machines tab list). */
+export async function listMachinesForAccount(db: D1Database, accountId: string): Promise<Machine[]> {
+  const res = await db
+    .prepare("SELECT * FROM machine WHERE account_id = ? ORDER BY created_at DESC")
+    .bind(accountId)
+    .all<Machine>();
+  return res.results;
+}
+
+/** True if `machineId` is unclaimed, or already belongs to `accountId` — the
+ *  ownership check `renameMachine` uses before writing, since `machine_id` is
+ *  otherwise just a client-supplied path param. */
+async function machineIsAccessibleTo(db: D1Database, accountId: string, machineId: string): Promise<boolean> {
+  const inMachine = await db.prepare("SELECT account_id FROM machine WHERE machine_id = ?").bind(machineId).first<{ account_id: string }>();
+  if (inMachine) return inMachine.account_id === accountId;
+  const inKey = await db
+    .prepare("SELECT account_id FROM machine_key WHERE machine_id = ? LIMIT 1")
+    .bind(machineId)
+    .first<{ account_id: string }>();
+  if (inKey) return inKey.account_id === accountId;
+  return false; // unknown machine_id — nothing to claim or rename
+}
+
+/**
+ * Rename a Machine's label without touching its key (identity is the
+ * `machine_id`, not the label). Works for a Machine that predates this
+ * entity too (a legacy key with no `machine` row) by backfilling one.
+ * Returns false if the machine_id is unknown or belongs to another account.
+ */
+export async function renameMachine(
+  db: D1Database,
+  accountId: string,
+  machineId: string,
+  label: string,
+): Promise<boolean> {
+  if (!(await machineIsAccessibleTo(db, accountId, machineId))) return false;
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO machine (machine_id, account_id, label, created_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(machine_id) DO UPDATE SET label = excluded.label`,
+      )
+      .bind(machineId, accountId, label, Date.now()),
+    db
+      .prepare("UPDATE machine_key SET label = ? WHERE account_id = ? AND machine_id = ?")
+      .bind(label, accountId, machineId),
+  ]);
+  return true;
+}
+
+/** The Machine's current non-revoked key, or null if it has none. */
+export async function activeKeyForMachine(
+  db: D1Database,
+  accountId: string,
+  machineId: string,
+): Promise<MachineKey | null> {
+  const row = await db
+    .prepare(
+      "SELECT * FROM machine_key WHERE account_id = ? AND machine_id = ? AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(accountId, machineId)
+    .first<MachineKey>();
+  return row ?? null;
+}
+
+/**
+ * Issue a new key bound to an EXISTING Machine's `machine_id` (distinct from
+ * `issueKey`, which mints a fresh `machine_id` per key). Revokes the Machine's
+ * prior key in the same batch — at most one active key per Machine, so two
+ * daemons can never write interleaved events under one `machine_id`.
+ */
+export async function issueKeyForMachine(
+  db: D1Database,
+  accountId: string,
+  machineId: string,
+  label: string,
+): Promise<MachineKey> {
+  const key: MachineKey = {
+    access_key: token(),
+    account_id: accountId,
+    machine_id: machineId,
+    label,
+    created_at: Date.now(),
+    revoked_at: null,
+  };
+  const now = Date.now();
+  await db.batch([
+    db
+      .prepare(
+        "UPDATE machine_key SET revoked_at = ? WHERE account_id = ? AND machine_id = ? AND revoked_at IS NULL",
+      )
+      .bind(now, accountId, machineId),
+    db
+      .prepare(
+        "INSERT INTO machine_key (access_key, account_id, machine_id, label, created_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .bind(key.access_key, key.account_id, key.machine_id, key.label, key.created_at),
+  ]);
+  return key;
+}
+
+const DEVICE_AUTH_CODE_TTL_MS = 120_000;
+
+/**
+ * Mint a short-lived, single-use authorization code bound to an already-issued
+ * key, for the loopback redirect to carry instead of the key itself (D2: the
+ * key never appears in a URL). Opportunistically prunes expired codes on
+ * write, so no separate cleanup job is needed for this small, short-lived
+ * table.
+ */
+export async function createDeviceAuthCode(
+  db: D1Database,
+  accountId: string,
+  accessKey: string,
+  machineId: string,
+): Promise<string> {
+  const now = Date.now();
+  await db.prepare("DELETE FROM device_auth WHERE expires_at < ?").bind(now).run();
+  const code = token();
+  await db
+    .prepare(
+      "INSERT INTO device_auth (code, account_id, access_key, machine_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(code, accountId, accessKey, machineId, now, now + DEVICE_AUTH_CODE_TTL_MS)
+    .run();
+  return code;
+}
+
+/**
+ * Redeem a device-authorization code: valid, unexpired, and not already
+ * redeemed. Single-use — marks it redeemed in the same call so a replayed
+ * code is rejected.
+ */
+export async function redeemDeviceAuthCode(
+  db: D1Database,
+  code: string,
+): Promise<{ access_key: string; machine_id: string; account_id: string } | null> {
+  const now = Date.now();
+  await db.prepare("DELETE FROM device_auth WHERE expires_at < ?").bind(now).run();
+  const row = await db
+    .prepare("SELECT access_key, machine_id, account_id, redeemed_at FROM device_auth WHERE code = ?")
+    .bind(code)
+    .first<{ access_key: string; machine_id: string; account_id: string; redeemed_at: number | null }>();
+  if (!row || row.redeemed_at !== null) return null;
+  await db.prepare("UPDATE device_auth SET redeemed_at = ? WHERE code = ?").bind(now, code).run();
+  return { access_key: row.access_key, machine_id: row.machine_id, account_id: row.account_id };
 }
 
 /** Issue a fresh per-machine key. Returns the key + generated machine_id. */

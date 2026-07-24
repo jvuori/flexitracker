@@ -57,6 +57,94 @@ async function run() {
   await j("/test/approve", { method: "POST", body: JSON.stringify({ accountId: me0.accountId }) });
   check("approved → active", (await j("/api/me")).status === "active");
 
+  // --- device authorization flow (the daemon `login` command's browser
+  // handshake): /device/authorize (Access-protected, this is where Google
+  // sign-in happens) -> approve -> one-time code over a loopback-style
+  // redirect -> /device/token (Access-bypassed) exchanges it for the key.
+  // `cb` is a syntactically-valid loopback address that is never actually
+  // contacted here — the test follows the redirect by reading its Location
+  // header (`redirect: "manual"`), exactly like the daemon's loopback
+  // listener would receive the callback, without needing a real listener.
+  {
+    const label = `smoke-device-${RUN}`;
+    const cb = "127.0.0.1:1";
+    const authorize = async (state, decision, machine_id = "") => {
+      const getResp = await fetch(
+        `${BASE}/device/authorize?label=${encodeURIComponent(label)}&cb=${encodeURIComponent(cb)}&state=${state}`,
+        { headers: userAuth },
+      );
+      const html = await getResp.text();
+      const form = new URLSearchParams({ label, cb, state, decision, machine_id });
+      const postResp = await fetch(`${BASE}/device/authorize`, {
+        method: "POST",
+        headers: { ...userAuth, "content-type": "application/x-www-form-urlencoded" },
+        body: form,
+        redirect: "manual",
+      });
+      const loc = postResp.headers.get("location") ?? "";
+      const code = loc ? new URL(loc).searchParams.get("code") : null;
+      return { getStatus: getResp.status, html, postStatus: postResp.status, loc, code };
+    };
+    const exchange = async (code) =>
+      fetch(`${BASE}/device/token`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code }),
+      }).then((r) => r.json().then((body) => ({ status: r.status, body })));
+
+    const first = await authorize("smoke-state-1", "approve");
+    check("device/authorize GET renders (200)", first.getStatus === 200, `got ${first.getStatus}`);
+    check("approval page shows the requested label", first.html.includes(label));
+    check("device/authorize POST redirects (302)", first.postStatus === 302, `got ${first.postStatus}`);
+    check(
+      "redirect carries a one-time code and the echoed state",
+      !!first.code && first.loc.includes("state=smoke-state-1"),
+      first.loc,
+    );
+
+    const tok1 = await exchange(first.code);
+    check(
+      "device/token exchange returns the minted key",
+      tok1.status === 200 && typeof tok1.body.access_key === "string" && !!tok1.body.machine_id,
+      JSON.stringify(tok1),
+    );
+    const replay = await exchange(first.code);
+    check("device/token code is single-use (replay rejected)", replay.status === 400, `got ${replay.status}`);
+
+    const who1 = await (
+      await fetch(`${BASE}/whoami`, { headers: { authorization: `Bearer ${tok1.body.access_key}` } })
+    ).json();
+    check(
+      "device-issued key resolves via whoami",
+      who1.machineLabel === label && who1.active === true,
+      JSON.stringify(who1),
+    );
+
+    // Re-login with the SAME label: the device-issued key has never ingested,
+    // so there's no "active, recently-seen" conflict yet — a plain "approve"
+    // must succeed and, per label-based resolution, bind the SAME machine_id.
+    const second = await authorize("smoke-state-2", "approve");
+    check("re-login with an un-ingested label shows no conflict", !second.html.includes("already active"));
+    const tok2 = await exchange(second.code);
+    check(
+      "label reuse keeps the same machine_id",
+      tok2.status === 200 && tok2.body.machine_id === tok1.body.machine_id,
+      `first ${tok1.body.machine_id} second ${JSON.stringify(tok2.body)}`,
+    );
+
+    // One-active-key-per-Machine: issuing the second key must have revoked
+    // the first — two daemons must never write interleaved events under one
+    // machine_id.
+    const who1After = await (
+      await fetch(`${BASE}/whoami`, { headers: { authorization: `Bearer ${tok1.body.access_key}` } })
+    ).json();
+    check(
+      "re-issuing for the same Machine revoked the prior key",
+      who1After.active === false,
+      JSON.stringify(who1After),
+    );
+  }
+
   const key = await j("/api/machines", { method: "POST", body: JSON.stringify({ label: "smoke" }) });
   check("issued access key", typeof key.access_key === "string" && !!key.machine_id);
 

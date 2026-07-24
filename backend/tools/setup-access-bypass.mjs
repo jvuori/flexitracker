@@ -1,5 +1,6 @@
 // Create the Cloudflare Access "bypass" applications for the daemon/monitoring
-// paths (/ingest, /config, /health, /whoami) so non-browser clients aren't challenged.
+// paths (/ingest, /config, /health, /whoami, /device/token) so non-browser
+// clients aren't challenged.
 // Idempotent: re-running reuses existing apps and skips existing bypass policies.
 //
 // Needs an API token with **Account → Access: Apps and Policies → Edit**:
@@ -19,7 +20,10 @@ const HOSTNAME = process.env.HOSTNAME ?? "flexitracker-qa.jaakko-vuori.workers.d
 // not be able to delete QA's /test bypass (that silently breaks the fixtures
 // loader), nor add one to PROD. The environment is a property of the hostname.
 const IS_QA = /(^|[.-])qa([.-]|$)/i.test(HOSTNAME);
-const PATHS = ["ingest", "config", "health", "whoami", ...(IS_QA ? ["test"] : [])];
+// device/token is the daemon `login` flow's non-browser code-exchange step
+// (frictionless-machine-onboarding D3); device/authorize stays OFF this list
+// deliberately — it's the browser step and must stay behind Access/Google.
+const PATHS = ["ingest", "config", "health", "whoami", "device/token", ...(IS_QA ? ["test"] : [])];
 const REMOVE_PATHS = IS_QA ? [] : ["test"];
 const API = "https://api.cloudflare.com/client/v4";
 
