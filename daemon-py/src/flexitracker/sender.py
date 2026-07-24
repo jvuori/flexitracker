@@ -14,6 +14,14 @@ from dataclasses import dataclass
 from typing import Optional
 
 from .config import ThresholdCfg
+from .version import get_version
+
+# Cloudflare's bot-fight mode blocks urllib's default "Python-urllib/x.y" User-
+# Agent outright (HTTP 403, body "error code: 1010") on every route, Access-
+# bypassed or not — it's a zone-level WAF check, unrelated to Access. Every
+# real request this client makes needs a non-default UA or it never leaves
+# the edge.
+USER_AGENT = f"flexitracker-daemon/{get_version()}"
 
 
 class SenderError(Exception):
@@ -22,7 +30,7 @@ class SenderError(Exception):
 
 def _request(url: str, key: Optional[str], method: str, body: Optional[dict]) -> dict:
     data = None
-    headers = {}
+    headers = {"user-agent": USER_AGENT}
     if key:
         headers["authorization"] = f"Bearer {key}"
     if body is not None:

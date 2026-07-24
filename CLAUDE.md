@@ -217,6 +217,17 @@ This project MUST never incur any charge — not now, not after any trial or 12-
   fired seconds after provisioning can legitimately fail. Re-run before assuming a
   logic bug — but if the *same* failure repeats after propagation, it is real
   (that's how the `non_identity` bug above was found).
+- **A `urllib`-based client gets `HTTP 403` with body `error code: 1010` against
+  the Worker, on ANY route (bypassed or not) — including the released
+  `flexitracker` daemon itself in the wild (`sender.py`)** → Cloudflare's
+  **bot-fight mode** is a zone-level WAF check that blocks the default
+  `Python-urllib/x.y` User-Agent outright, independent of and *before* Access
+  ever evaluates the request — an Access bypass does not help. Same trap bit an
+  ad-hoc `curl`-free Python migration script during this project's history. Fix:
+  send a real `User-Agent` header (the daemon does, via `sender.USER_AGENT`).
+  Rule of thumb: `403` + `error code: 1010` from this domain = bot-fight mode,
+  not Access, not an app-level rejection (which is `401`/`403` with a JSON
+  body) — check the User-Agent first.
 
 ## Environment & tooling gotchas (this machine)
 
