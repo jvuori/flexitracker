@@ -159,7 +159,7 @@ main{max-width:900px;margin:0 auto;padding:1rem}
  color:var(--muted);border:1px solid var(--line2);border-radius:4px;vertical-align:middle}
 /* Holiday tag: a filled accent chip, distinct from the outline "off" chip. */
 .offtag.holiday{color:var(--bg);background:var(--accent);border-color:var(--accent)}
-.nums .lunch{display:block;font-size:.72rem;color:var(--muted)}
+.nums .report{display:block;font-size:.72rem;color:var(--muted)}
 .lane-head{display:grid;grid-template-columns:96px 1fr 118px;gap:.6rem;align-items:center}
 .dl{font-size:.8rem;line-height:1.2;cursor:pointer;user-select:none}
 .dl b{display:block;font-size:.9rem}.dl .date{color:var(--muted)}
@@ -279,13 +279,6 @@ main{max-width:900px;margin:0 auto;padding:1rem}
 .more>summary::-webkit-details-marker{display:none}
 .more .pop{position:absolute;right:0;top:calc(100% + .25rem);z-index:5;background:var(--bg);
  border:1px solid var(--line);border-radius:6px;padding:.35rem;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.18)}
-/* Week transcription summary: the rounded half-hour values, the only place
-   rounding appears, kept visually distinct from the exact figures everywhere else. */
-.tsum{margin:.5rem 0 1rem;padding:.6rem .75rem;background:var(--panel);border:1px solid var(--line);border-radius:10px}
-.tsum h3{margin:0;font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
-.tsum .vals{display:flex;flex-wrap:wrap;gap:.2rem 1.1rem;margin:.4rem 0 0;font-size:.9rem;font-variant-numeric:tabular-nums}
-.tsum .vals span b{font-weight:650;margin-left:.3rem}
-.tsum .vals .tot{border-left:1px solid var(--line2);padding-left:1.1rem}
 .plist{display:flex;flex-direction:column;gap:2px;margin:.3rem 0}
 /* One .pitem per period: the row, plus the classifier when it is the selection.
    The classifier lives here rather than in a standing strip so the verb sits
@@ -322,7 +315,7 @@ main{max-width:900px;margin:0 auto;padding:1rem}
  .cls .lbl{flex-basis:100%}
  .seg3{display:flex;width:100%}
  .seg3 button{flex:1;padding:.62rem .3rem;min-height:44px}
- .tsum .vals .tot{border-left:none;padding-left:0;flex-basis:100%}}
+}
 button.act{border:1px solid var(--line);background:none;color:var(--fg);padding:.25rem .5rem;border-radius:5px;cursor:pointer;font-size:.8rem}
 button.act:disabled{opacity:.4;cursor:not-allowed}
 input,select{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:5px;padding:.35rem}
@@ -456,7 +449,6 @@ function renderWeek(st,wk){
     stat('Weekly norm',hm(wk.weeklyNormMs))+
     stat('Lunch',hm(lunchMs))+
     stat('Balance',bal(wk.weeklyBalanceMs),wk.weeklyBalanceMs>=0?'pos':'neg')+'</div>'));
-  view.append(transcription(wk));
  }else{
   view.append(el('<div class="summary">'+stat('Activity',hm(wk.weeklyWorkedMs))+'</div>'));
  }
@@ -466,27 +458,6 @@ function renderWeek(st,wk){
  document.getElementById('next').onclick=()=>{weekOffset++;openDay=null;TABS.week();};
 }
 
-// The ONLY place rounding appears. Everything else on screen is exact, so no
-// two figures shown together are derived on different bases — the old lane put
-// a rounded 8h 00m beside an exact-derived +16m and read as an arithmetic error.
-// Decimal hours (8.0 / 7.5) is what timesheet systems take, and the format
-// difference from the lane's 7h 46m is itself the signal that these differ.
-function transcription(wk){
- const t=transcriptionRows(wk.days,DAYNAMES);
- const box=el('<div class="tsum"><div class="row"><h3>To transcribe</h3></div></div>');
- if(!t.rows.length){box.append(el('<p class="muted">No working time this week.</p>'));return box;}
- const vals=el('<div class="vals"></div>');
- t.rows.forEach(r=>vals.append(el('<span>'+r[0]+'<b>'+r[1]+'</b></span>')));
- vals.append(el('<span class="tot">Total<b>'+t.total+'</b></span>'));
- box.append(vals);
- const b=el('<button class="act">Copy</button>');
- b.onclick=async()=>{
-  try{await navigator.clipboard.writeText(t.tsv);b.textContent='Copied ✓';}
-  catch{b.textContent='Copy failed';}
- };
- box.querySelector('.row').append(b);
- return box;
-}
 
 // One vocabulary, used by the timeline, the period list, and the receipt alike.
 // review and gap share a label deliberately: they are identical in effect (both
@@ -610,12 +581,15 @@ function dayLane(d,i,now){
  const balCls=d.balanceMs>=0?'pos':'neg';
  const balTxt=(!zeroNorm||d.balanceMs!==0)?bal(d.balanceMs):'—';
  const tag=!isWork?'':d.isHoliday?'<span class="offtag holiday">holiday</span>':(d.isWorkingDay?'':'<span class="offtag">off</span>');
- // Exact, never rounded: the balance beside it is exact-derived, so a rounded
- // figure here would not reconcile with it (and the days would not sum to the
- // week). The rounded value lives in the transcription summary alone.
+ // Exact is the DOMINANT figure and the sole basis of the balance beside it —
+ // that is what the old lane got wrong (a rounded 8h 00m over an exact-derived
+ // +16m, which read as an arithmetic error). The rounded value rides along as a
+ // subordinate output in decimal hours: nothing is derived from it, and the unit
+ // contrast keeps the two from reading as competing claims. Lunch moved to the
+ // receipt, where it sits between gross and worked as the step it actually is.
  const nums=isWork
    ?('<span class="worked">'+hm(d.workedMs)+'</span>'+
-     (d.lunchMs>0?'<span class="lunch">Lunch '+hm(d.lunchMs)+'</span>':'')+
+     (d.workedMs>0?'<span class="report">report '+dec30(d.workedMs)+'</span>':'')+
      '<span class="bal '+balCls+'">'+balTxt+'</span>')
    :'<span class="worked">'+hm(d.workedMs)+'</span>';
  const lane=el('<div class="lane'+(isToday?' today':'')+(zeroNorm?' off':'')+(isWork&&d.isHoliday?' holiday':'')+(d.dayStart===openDay?' open':'')+'">'+

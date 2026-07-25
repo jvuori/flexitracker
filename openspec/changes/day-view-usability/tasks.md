@@ -63,4 +63,14 @@
 - [x] 8.3 Verify at laptop and 360px widths, in light and dark themes
 - [x] 8.4 Verify each classifier transition end-to-end against the state table, including the newly-reachable gap → personal from the work ledger
 - [x] 8.5 Confirm no badge, count, or prompt appears anywhere for reviewable time
-- [ ] 8.6 Push to `master`, confirm QA fixtures + E2E pass and the green e2e auto-promotes to PROD
+- [x] 8.6 Push to `master`, confirm QA fixtures + E2E pass and the green e2e auto-promotes to PROD
+
+## 9. Revision: reportable value on the lane, transcription pane removed
+
+- [x] 9.1 Remove the week transcription pane (`transcription()`, its `.tsum` styles, and its call site in `renderWeek`)
+- [x] 9.2 Replace the lane's `Lunch` figure with the reportable rounded value in decimal hours, labelled, shown only in the work ledger and only when the day has working time
+- [x] 9.3 Keep the exact worked time as the lane's dominant figure and the sole basis of the balance
+- [x] 9.4 Style the reportable value as subordinate to the exact figure, legible in both themes and at 360px
+- [x] 9.5 Drop `transcriptionRows` from the client helpers; keep `round30`/`dec30` for the lane
+- [x] 9.6 Update the unit tests: retire the transcription-pane coverage, add coverage that the lane's reportable value and lunch placement follow the revised rules
+- [x] 9.7 Verify locally that the lane reconciles (exact − norm = balance), that no rounded weekly aggregate appears, and that lunch reads in the receipt

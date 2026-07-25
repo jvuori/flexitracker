@@ -46,21 +46,20 @@ Component rows are summed client-side from the existing partition; `grossMs`/`lu
 - *Why client-side:* the partition is already in the payload and the counted periods are specified to sum to gross (`worktime-calculation`: "Partition agrees with reported working time"). Summing in the client keeps the change backend-free; if the sums ever disagree with `grossMs`, that is a genuine engine bug and the fail-fast principle says it should be visible, not papered over.
 - *Alternative:* server-computed component totals as new response fields. Rejected — a new field for a value already derivable, on a payload we control end to end.
 
-### Rounding leaves the day lane; a transcription surface owns it
+### The reportable value goes in the lane's third slot, not a separate pane
 
-The lane shows exact worked time and the signed balance, which now share one basis. The rounded half-hour value appears only in a new week-level transcription summary, as decimal hours.
+The lane's three-line numbers cell becomes: **exact worked** (dominant) · **`report 8.0`** (subordinate) · **balance**. The lunch figure vacates that slot; the receipt already states it as a step in the arithmetic. There is no week-level transcription pane.
 
-- *Why:* the current lane places `8h 00m` (rounded) beside `+16m` (exact-derived) with nothing to indicate they are computed differently, so the row reads as an arithmetic error. And `round30` is applied per-day but never to the week total, so the visible days cannot sum to the visible week. Both disappear if the lane has exactly one basis.
-- *Why decimal hours in the transcription surface:* `8.0` / `7.5` is what timesheet systems accept, and the format difference from the lane's `7h 46m` is itself a signal that these are different artifacts — one is the truth, one is the reportable rounding of it.
-- *Trade-off:* this weakens `worktime-calculation`'s "exact and rounded shown together" from *in every presentation* to *both present in the view*. The intent — the user can always see both, and is never left guessing which one to transcribe — is better served, but the requirement text changes and is called out as **BREAKING** in the proposal.
-- *Alternative:* keep both in the lane, labelled. Rejected — it adds a third figure to a three-line cell that is already the densest thing on the screen, to solve a problem better solved by moving the value to where it is actually used.
+- *Why the exactness rule survives:* the original defect was that the lane's **dominant** figure was rounded while the balance beside it was exact-derived, so `8h 00m … +16m` read as an arithmetic error (`8:00 − 7:30 = +30`). Keeping the headline exact fixes that regardless of what else the cell carries. The precise rule is therefore not "never show rounded beside exact" but *"every figure that stands in an arithmetic relationship to another must share its basis"* — and the reportable value stands in none, because nothing on screen is derived from it.
+- *Why not a separate pane:* the transcribe job is done a day at a time, so a week-level pane forces a cross-reference back to the lanes for every value. It was also a fifth block of week chrome above the content (status, mode, nav, summary, pane), against the density this change exists to recover — and its sum-of-rounded total (`37.5`) sat two inches from the summary's exact `37h 11m`, which is the very confusion being designed out.
+- *Why decimal hours:* `8.0` / `7.5` is what timesheet systems accept, and the unit-format difference from `7h 46m` is what keeps the two from reading as competing claims about the same quantity. That format contrast is now load-bearing rather than incidental, since the figures share a cell.
+- *Residual risk, accepted:* a user could compute `8.0 − 7.5 = +30m` and wonder why the balance says `+6m`. Mitigated by the `report` label, the unit contrast, and the exact value sitting directly above as the obvious basis — and strictly better than the original, where the rounded figure was dominant.
+- *Trade-off:* no rounded weekly total anywhere. Summing five rounded days is left to the reader or to the employer's system. Deliberate: any rounded weekly aggregate would disagree with the summary's exact total, which is exactly the class of contradiction this change removes.
+- *Cost:* the TSV copy action goes with the pane. It served the same job, but it was speculative — no clipboard workflow was ever established — and reintroducing it needs a home that is not a week-level pane.
 
-### Copy payload is tab-separated
+### Lunch moves out of the lane and into the receipt
 
-The transcription summary renders human-readably and copies as `Mon\t8.0\n…` plus a total row.
-
-- *Why:* TSV pastes as two columns into a spreadsheet and as readable text into a plain field, covering both destinations without a format toggle.
-- *Alternative:* copy exactly the rendered text. Rejected — costs the spreadsheet case for a cosmetic gain.
+- *Why:* the collapsed lane shows neither gross nor worked-before-lunch, so a bare `Lunch 30m` there names a deduction from a quantity the user cannot see. In the receipt it sits between gross and worked, where it reads as the step it is. The `Per-day lunch deduction visible` requirement is modified accordingly — its intent (the user can see why worked is below gross) is better served, not dropped.
 
 ### The office window is a background of the track, not an overlay element
 
@@ -192,6 +191,7 @@ The Advanced control keeps its exact-times inputs and adopts the same classifier
 ## Open Questions
 
 - **Should an undo affordance ship with this?** Every action is a single correction row and `DELETE /api/corrections/:id` exists, but today a correction silently re-renders the week with the selection dropped — no confirmation, no diff, no way back except finding the period again. A `−54m · Undo` toast would change how confidently people edit. Currently scoped out; worth its own change.
-- **Does the transcription summary belong to the week view or its own surface?** Placed in the week view here, on the argument that it is the week's output. If it grows (per-day notes, a submitted marker) it wants its own home.
+- ~~**Does the transcription summary belong to the week view or its own surface?**~~ **Resolved: neither.** The pane was cut and the rounded value moved into the day lane's third slot, displacing the lunch figure. A week-level pane forced a cross-reference back to the lanes for a job done a day at a time, and its sum-of-rounded total sat beside the summary's exact total. See *The reportable value goes in the lane's third slot*.
 - **What does the receipt show in personal mode?** Reduced to `at the computer` + `you added` = total, since bridging, lunch, and the office window do not exist there. Assumed; confirm against the reduced-composition requirement during implementation.
-- **Should the exact/rounded pairing survive anywhere per-day?** The transcription summary shows rounded per day and the lane shows exact per day, so both are visible in one view but never on one row. Confirm that satisfies the intent of the weakened `worktime-calculation` requirement.
+- ~~**Should the exact/rounded pairing survive anywhere per-day?**~~ **Resolved: yes, on the lane itself** — exact dominant, rounded subordinate, in contrasting unit forms. The `worktime-calculation` requirement is restated around the arithmetic-relationship rule rather than a blanket ban on showing the two together.
+- **Does the copy affordance deserve a home?** Removed with the transcription pane. If a clipboard workflow turns out to matter, it needs somewhere that is not a week-level block — a per-lane copy, or an action in the week summary.

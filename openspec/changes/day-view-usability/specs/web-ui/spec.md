@@ -56,25 +56,31 @@ The band SHALL NOT be rendered while the personal ledger is selected, consistent
 - **WHEN** the personal ledger is selected
 - **THEN** no office-hours band is rendered on any timeline
 
-### Requirement: Week transcription summary
-The week view SHALL present a transcription summary listing, for each day of the week that has working time, that day's working time rounded to the nearest half hour and expressed in decimal hours, together with the week's rounded total. The summary SHALL offer a single action that copies its contents to the clipboard in a tab-separated form, so it can be pasted into either a spreadsheet or a plain text field without the user choosing a format. The summary is a work-ledger concept and SHALL NOT be shown while the personal ledger is selected.
+### Requirement: Reportable value on the day lane
+A day's lane SHALL show, alongside its exact working time, that day's working time rounded to the nearest half hour and expressed in decimal hours, labelled as the value to report. Because the user transcribes a day at a time, the reportable value SHALL sit on the day's own row rather than in a separate week-level surface requiring the user to cross-reference it against the lanes.
 
-#### Scenario: Summary lists rounded per-day values
-- **WHEN** the work ledger's week view is rendered
-- **THEN** a transcription summary lists each day with working time as decimal hours rounded to the nearest half hour, alongside the week's rounded total
+The reportable value SHALL be visually subordinate to the exact working time and SHALL be rendered in a different unit format from it, so the two are never read as competing statements of the same quantity. The exact working time SHALL remain the lane's dominant figure and the sole basis of the day's balance. The reportable value SHALL be shown only on a day that has working time, and only in the work ledger.
 
-#### Scenario: Copy yields tab-separated rows
-- **WHEN** the user activates the summary's copy action
-- **THEN** the clipboard receives one tab-separated row per listed day plus a total row
+#### Scenario: Reportable value on a worked day
+- **WHEN** a day in the work ledger has 7h 46m of working time
+- **THEN** its lane shows `7h 46m` as its dominant figure and `8.0` as a subordinate, labelled reportable value
 
-#### Scenario: Summary hidden in personal mode
+#### Scenario: Reportable value absent on an empty day
+- **WHEN** a day has no working time
+- **THEN** its lane shows no reportable value
+
+#### Scenario: No reportable value in personal mode
 - **WHEN** the personal ledger is selected
-- **THEN** no transcription summary is shown
+- **THEN** no lane shows a reportable value, since there is nothing to transcribe
+
+#### Scenario: Balance still derives from the exact value
+- **WHEN** a day shows both an exact working time and a reportable value
+- **THEN** the day's balance is the exact working time minus the day's norm, and is not derived from the reportable value
 
 ## MODIFIED Requirements
 
 ### Requirement: Week view as default
-The default view SHALL present one ISO week (Monday–Sunday) with per-day working time, per-day balance, and the weekly total against the weekly norm, and SHALL allow navigating between weeks. Each day SHALL be rendered as an inline lane on the week page that combines, on one row, the day label, the day's full 0–24h timeline, and the day's numbers (exact working time, the lunch deducted, and the daily balance). Every duration and balance shown on a day's lane and in the weekly summary SHALL be an exact value; the rounded-to-half-hour presentation SHALL appear only in the transcription summary, so that no two figures shown together are derived on different bases. A weekly summary SHALL be shown above the lanes reporting worked time, weekly norm, lunch deducted, and weekly balance. The week view SHALL offer a single mode toggle between the **work** ledger and the **personal** ledger; the mode applies to the whole week view (lanes, summary, and edit actions) until changed, and SHALL default to the work ledger. Switching modes SHALL NOT navigate to a different screen or change the selected week.
+The default view SHALL present one ISO week (Monday–Sunday) with per-day working time, per-day balance, and the weekly total against the weekly norm, and SHALL allow navigating between weeks. Each day SHALL be rendered as an inline lane on the week page that combines, on one row, the day label, the day's full 0–24h timeline, and the day's numbers (exact working time, the reportable rounded value, and the daily balance). Every figure that stands in an arithmetic relationship to another figure on screen SHALL be exact — a day's working time, its norm, its lunch deduction, its balance, and every weekly total — so that no two figures a user can compare are derived on different bases. The reportable rounded value is the sole exception and is exempt precisely because it enters no such relationship: it is an output, not a term. A weekly summary SHALL be shown above the lanes reporting worked time, weekly norm, lunch deducted, and weekly balance, all exact. The week view SHALL offer a single mode toggle between the **work** ledger and the **personal** ledger; the mode applies to the whole week view (lanes, summary, and edit actions) until changed, and SHALL default to the work ledger. Switching modes SHALL NOT navigate to a different screen or change the selected week.
 
 #### Scenario: Navigate weeks
 - **WHEN** the user moves to the previous or next week
@@ -86,7 +92,7 @@ The default view SHALL present one ISO week (Monday–Sunday) with per-day worki
 
 #### Scenario: Weekly summary present
 - **WHEN** the work ledger is shown
-- **THEN** a summary shows the week's total worked time, weekly norm, lunch deducted, and weekly balance
+- **THEN** a summary shows the week's total worked time, weekly norm, lunch deducted, and weekly balance, each as an exact value
 
 #### Scenario: Day figures reconcile with each other
 - **WHEN** a day has 7h 46m of working time against a 7h 30m norm
@@ -103,6 +109,23 @@ The default view SHALL present one ISO week (Monday–Sunday) with per-day worki
 #### Scenario: Work is the default mode
 - **WHEN** the week view is opened
 - **THEN** it shows the work ledger unless the user has already switched modes in this session
+
+### Requirement: Per-day lunch deduction visible
+When a day has a lunch deduction applied, the deducted amount SHALL be visible in that day's expanded detail, so the user can see why the day's worked time is below its gross time. It SHALL be shown as a line of the day's receipt, between the gross and worked figures, so the deduction reads as a step in the arithmetic rather than as a detached figure. A day with no lunch deduction SHALL NOT show a lunch line.
+
+The deduction SHALL NOT occupy a slot on the collapsed lane. The collapsed lane shows neither gross nor worked-before-lunch, so the comparison this requirement exists to explain is only meaningful once the day is expanded — where the receipt states it in full. The lunch amount and the day-length threshold that triggers it remain the existing configurable settings; this requirement only concerns surfacing the per-day result.
+
+#### Scenario: Day with lunch shows the deduction in its receipt
+- **WHEN** a day's gross working time exceeds the lunch threshold and a lunch deduction is applied, and the user expands that day
+- **THEN** the receipt shows the deducted lunch amount between the gross and worked figures
+
+#### Scenario: Day without lunch shows none
+- **WHEN** a day's gross working time is at or below the lunch threshold and no lunch is deducted
+- **THEN** no lunch line is shown in that day's receipt
+
+#### Scenario: Collapsed lane carries no lunch figure
+- **WHEN** the week view is rendered and a day with a lunch deduction is collapsed
+- **THEN** its lane shows no lunch figure, the slot carrying the day's reportable value instead
 
 ### Requirement: Day timeline with edit mode
 Each day's lane SHALL show its timeline of the currently-viewed ledger's activity on the shared 0–24h scale with corrections overlaid and visually distinguished. In the work ledger, the timeline SHALL also show raw idle/off-computer periods as a distinct layer even when they have been auto-bridged into working time, so no counted period hides an underlying gap; time excluded by a `remove_work` correction SHALL be rendered as a distinct "excluded" band rather than hidden as a plain gap. Selecting a day SHALL expand its lane in place to reveal edit controls; there SHALL be no separate day-detail screen. The collapsed week view SHALL be unaffected by anything below — it SHALL continue to show exactly one merged lane per day.

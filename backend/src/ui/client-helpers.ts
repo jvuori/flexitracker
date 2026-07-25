@@ -67,7 +67,7 @@ function markRawProvisional(segs,provisional){
 `;
 
 // Pure helpers for the day-view redesign: the receipt's component sums, the
-// transcription rounding, and — most importantly — the classifier's state
+// the reportable rounding, and — most importantly — the classifier's state
 // table. Keeping the state table pure is what makes it testable without a DOM:
 // it decides WHICH corrections a classifier choice implies, and the client
 // merely executes the returned plan.
@@ -90,22 +90,12 @@ function receiptSums(periods){
  return acc;
 }
 
-// Rounding lives here and ONLY here — every figure shown beside another figure
-// is exact, so nothing on a lane can fail to reconcile with its neighbour.
+// Rounding lives here and ONLY here. It produces the lane's reportable value —
+// an output, never a term: no balance, norm comparison, weekly total, or stored
+// value is derived from it, so it is the one figure exempt from the rule that
+// anything standing in an arithmetic relationship must be exact.
 function round30(ms){return Math.round(ms/1800000)*1800000;}
 function dec30(ms){return (round30(ms)/3600000).toFixed(1);}
-
-// The transcription block: rounded decimal hours per worked day plus a total.
-// The total is the sum of the ROUNDED days, not the rounding of the exact
-// total — this block is what someone types into an employer's system, so it
-// has to add up on its own terms.
-function transcriptionRows(days,dayNames){
- const rows=[];
- days.forEach((d,i)=>{if(d.workedMs>0)rows.push([dayNames[i],dec30(d.workedMs)]);});
- const total=rows.reduce((n,r)=>n+Number(r[1]),0).toFixed(1);
- const tsv=rows.length?rows.map(r=>r[0]+'\t'+r[1]).join('\n')+'\nTotal\t'+total:'';
- return {rows:rows,total:total,tsv:tsv};
-}
 
 // The classifier's state table: given a period, the ledger in view, and the
 // position the user picked, return the ordered corrections to apply. Returns an

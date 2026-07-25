@@ -12,16 +12,12 @@ type Op =
   | { op: "move"; from: string };
 
 const h = new Function(
-  `${CLASSIFY_HELPERS_SRC}; return { countsNow, receiptSums, round30, dec30, transcriptionRows, classifyPlan };`,
+  `${CLASSIFY_HELPERS_SRC}; return { countsNow, receiptSums, round30, dec30, classifyPlan };`,
 )() as {
   countsNow: (p: Period) => boolean;
   receiptSums: (p: Period[]) => Record<string, number>;
   round30: (ms: number) => number;
   dec30: (ms: number) => string;
-  transcriptionRows: (
-    days: { workedMs: number }[],
-    names: string[],
-  ) => { rows: [string, string][]; total: string; tsv: string };
   classifyPlan: (p: Period, target: string, ledger: string) => Op[];
 };
 
@@ -66,7 +62,7 @@ describe("receiptSums", () => {
   });
 });
 
-describe("rounding is confined to transcription", () => {
+describe("half-hour rounding", () => {
   it("rounds to the nearest half hour", () => {
     expect(h.round30(7 * H + 46 * M)).toBe(8 * H);
     expect(h.round30(7 * H + 44 * M)).toBe(7 * H + 30 * M);
@@ -80,56 +76,32 @@ describe("rounding is confined to transcription", () => {
   });
 });
 
-describe("transcriptionRows", () => {
-  const names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-  it("lists only days with working time", () => {
-    const days = [
-      { workedMs: 8 * H },
-      { workedMs: 7 * H + 46 * M },
-      { workedMs: 0 },
-      { workedMs: 7 * H + 44 * M },
-      { workedMs: 4 * H },
-      { workedMs: 0 },
-      { workedMs: 0 },
-    ];
-    const t = h.transcriptionRows(days, names);
-    expect(t.rows).toEqual([
-      ["Mon", "8.0"],
-      ["Tue", "8.0"],
-      ["Thu", "7.5"],
-      ["Fri", "4.0"],
-    ]);
+describe("the reportable value is an output, never a term", () => {
+  // The original defect was a ROUNDED headline over an exact-derived balance:
+  // 8h 00m / +16m, where 8:00 - 7:30 = +30. The rounded value is safe on the
+  // lane only while nothing is derived from it.
+  it("never reconciles the balance — that is the exact value's job", () => {
+    const workedMs = 7 * H + 46 * M;
+    const normMs = 7 * H + 30 * M;
+    const balanceMs = workedMs - normMs;
+    expect(balanceMs).toBe(16 * M);
+    // Deriving the balance from the reportable value instead would give +30m,
+    // which is precisely the contradiction the redesign removes.
+    const fromRounded = h.round30(workedMs) - normMs;
+    expect(fromRounded).not.toBe(balanceMs);
+    expect(fromRounded).toBe(30 * M);
   });
 
-  it("totals the ROUNDED days so the block adds up on its own", () => {
-    // The exact sum here is 27h30m, which would round to 27.5 — but the values
-    // a user actually types are 8.0+8.0+7.5+4.0. The block must be internally
-    // consistent, since it is what gets transcribed.
-    const days = [
-      { workedMs: 7 * H + 46 * M },
-      { workedMs: 7 * H + 46 * M },
-      { workedMs: 7 * H + 44 * M },
-      { workedMs: 4 * H },
-    ];
-    const t = h.transcriptionRows(days, names);
-    expect(t.rows.map((r) => r[1])).toEqual(["8.0", "8.0", "7.5", "4.0"]);
-    expect(t.total).toBe("27.5");
-    expect(Number(t.total)).toBeCloseTo(
-      t.rows.reduce((n, r) => n + Number(r[1]), 0),
-      5,
-    );
+  it("is rendered in a different unit form from the exact value", () => {
+    // "7h 46m" vs "8.0" — the contrast is load-bearing now that they share a cell.
+    expect(h.dec30(7 * H + 46 * M)).toBe("8.0");
+    expect(h.dec30(7 * H + 46 * M)).not.toMatch(/h|m/);
   });
 
-  it("emits tab-separated rows plus a total row", () => {
-    const t = h.transcriptionRows([{ workedMs: 8 * H }, { workedMs: 4 * H }], names);
-    expect(t.tsv).toBe("Mon\t8.0\nTue\t4.0\nTotal\t12.0");
-  });
-
-  it("is empty for a week with no working time", () => {
-    const t = h.transcriptionRows([{ workedMs: 0 }, { workedMs: 0 }], names);
-    expect(t.rows).toEqual([]);
-    expect(t.tsv).toBe("");
+  it("would print a hollow 0.0, which is why the lane gates it on workedMs", () => {
+    // dec30 itself has no opinion about empty days; the suppression is the
+    // lane's, and is asserted against the rendered client below.
+    expect(h.dec30(0)).toBe("0.0");
   });
 });
 
@@ -275,5 +247,25 @@ describe("the inlined browser client", () => {
   it("no longer renders a legend", () => {
     expect(html).not.toContain('class="legend"');
     expect(html).not.toContain('class="swatch');
+  });
+
+  it("carries the reportable value on the lane, gated on the day having worked time", () => {
+    expect(code).toContain("d.workedMs>0?'<span class=\"report\">report '+dec30(d.workedMs)");
+    // Exact stays the dominant figure; the balance is still exact-derived.
+    expect(code).toContain("'<span class=\"worked\">'+hm(d.workedMs)+'</span>'");
+  });
+
+  it("has no week-level transcription pane and no rounded weekly aggregate", () => {
+    expect(code).not.toContain("transcriptionRows");
+    expect(code).not.toContain("To transcribe");
+    expect(html).not.toContain('class="tsum"');
+    // The weekly summary must stay exact.
+    expect(code).toContain("stat('Worked',hm(wk.weeklyWorkedMs))");
+    expect(code).not.toContain("dec30(wk.weeklyWorkedMs)");
+  });
+
+  it("states lunch in the receipt, not on the collapsed lane", () => {
+    expect(code).toContain("line('sub','lunch'");
+    expect(code).not.toContain("'<span class=\"lunch\">Lunch '");
   });
 });
