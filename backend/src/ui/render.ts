@@ -1,5 +1,5 @@
 import type { Identity } from "../identity";
-import { LANE_HELPERS_SRC, TIME_HELPERS_SRC } from "./client-helpers";
+import { CLASSIFY_HELPERS_SRC, LANE_HELPERS_SRC, TIME_HELPERS_SRC } from "./client-helpers";
 
 /**
  * Node-free UI: a single self-contained HTML page with inline CSS (responsive,
@@ -113,11 +113,20 @@ export function renderDeviceNotActive(status: string): string {
 }
 
 const CSS = `
+/* Two orthogonal channels encode every period, instead of one colour per type:
+   FILL says whether it counts (solid measured / hatched inferred / bare not),
+   and the --accent underline says the USER asserted it. --accent is the amber
+   freed by review losing its own treatment. --office is the office-hours band:
+   deliberately a cool wash, so it never reads as the amber authorship mark. */
 :root{color-scheme:light dark;--bg:#fff;--fg:#111;--muted:#666;--line:#ddd;--line2:#cfd3da;
 --panel:#f6f8fb;--panel2:#eef1f6;--tick:#aab2be;--tick-strong:#7c8593;--tick-faint:#cdd3dc;--idle:#c9ced6;
---sensor:#2a7ade;--bridged:#1e58a0;--review:#e0a458;--remove:#d05;--pos:#2e9e6b;--neg:#d05;--excluded:#8b95a6;}
+--sensor:#2a7ade;--sensor-soft:rgba(42,122,222,.28);--accent:#e0a458;--office:rgba(90,130,190,.17);
+--quiet:rgba(127,135,150,.10);--quiet2:rgba(127,135,150,.18);
+--remove:#d05;--pos:#2e9e6b;--neg:#d05;}
 @media (prefers-color-scheme:dark){:root{--bg:#14161a;--fg:#e8e8e8;--muted:#9aa;--line:#333;--line2:#3a414b;
---panel:#1b1e24;--panel2:#22262e;--tick:#4a525d;--tick-strong:#6b7480;--tick-faint:#333a43;--idle:#3a414b;--pos:#4fc98d;--neg:#ff5c86;--excluded:#7c8698;}}
+--panel:#1b1e24;--panel2:#22262e;--tick:#4a525d;--tick-strong:#6b7480;--tick-faint:#333a43;--idle:#3a414b;
+--sensor-soft:rgba(90,155,240,.26);--office:rgba(120,160,220,.16);
+--quiet:rgba(150,160,180,.10);--quiet2:rgba(150,160,180,.20);--pos:#4fc98d;--neg:#ff5c86;}}
 *{box-sizing:border-box}
 body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--fg)}
 header{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem;border-bottom:1px solid var(--line)}
@@ -149,7 +158,7 @@ main{max-width:900px;margin:0 auto;padding:1rem}
 .offtag{margin-left:.35rem;padding:0 .28rem;font-size:.6rem;text-transform:uppercase;letter-spacing:.03em;
  color:var(--muted);border:1px solid var(--line2);border-radius:4px;vertical-align:middle}
 /* Holiday tag: a filled accent chip, distinct from the outline "off" chip. */
-.offtag.holiday{color:var(--bg);background:var(--review);border-color:var(--review)}
+.offtag.holiday{color:var(--bg);background:var(--accent);border-color:var(--accent)}
 .nums .lunch{display:block;font-size:.72rem;color:var(--muted)}
 .lane-head{display:grid;grid-template-columns:96px 1fr 118px;gap:.6rem;align-items:center}
 .dl{font-size:.8rem;line-height:1.2;cursor:pointer;user-select:none}
@@ -160,19 +169,33 @@ main{max-width:900px;margin:0 auto;padding:1rem}
 .nums .worked{display:block;font-size:1.05rem;font-weight:650;color:var(--fg)}
 .nums .bal{font-weight:600}.nums .bal.pos{color:var(--pos)}.nums .bal.neg{color:var(--neg)}
 .tl{cursor:pointer;user-select:none}
-.track{position:relative;height:30px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);overflow:hidden;
+/* The office-hours band is the LAST background-image layer, so it paints behind
+   the three tick gradients — and it lives on the same element as the segments,
+   which is the point: a separately-positioned overlay can drift from the
+   segments it must align with (see CLAUDE.md), a background cannot. --ofs/--ofe
+   are set inline per track; defaulting both to 0% means "no band" for any track
+   that doesn't set them (personal mode, where office hours don't apply). */
+.track{position:relative;height:30px;border-radius:6px;background-color:var(--panel2);border:1px solid var(--line);overflow:hidden;
  background-image:repeating-linear-gradient(90deg,var(--tick-strong) 0 1px,transparent 1px calc(100%/24)),
  repeating-linear-gradient(90deg,var(--tick) 0 1px,transparent 1px calc(100%/48)),
- repeating-linear-gradient(90deg,var(--tick-faint) 0 1px,transparent 1px calc(100%/96));
- background-size:100% 30px,100% 16px,100% 8px;background-position:left center;background-repeat:repeat-x}
+ repeating-linear-gradient(90deg,var(--tick-faint) 0 1px,transparent 1px calc(100%/96)),
+ linear-gradient(90deg,transparent 0 var(--ofs,0%),var(--office) var(--ofs,0%) var(--ofe,0%),transparent var(--ofe,0%) 100%);
+ background-size:100% 30px,100% 16px,100% 8px,100% 100%;
+ background-position:left center,left center,left center,left top;
+ background-repeat:repeat-x,repeat-x,repeat-x,no-repeat}
+/* Five treatments on two channels. Fill = counts (solid measured, hatched
+   inferred, bare not-counted); the accent underline = you asserted it. Measured
+   and auto-bridged MUST stay distinguishable — a counted period may never hide
+   the idle it was bridged over. */
 .seg{position:absolute;top:5px;height:14px;border-radius:3px;min-width:2px}
 .seg.sensor{background:var(--sensor)}
-.seg.auto_bridged{background:var(--bridged)}
-.seg.manual_added{background-color:var(--sensor);background-image:radial-gradient(rgba(255,255,255,.7) 1px,transparent 1.5px);background-size:5px 5px;background-position:center}
-.seg.review{background:repeating-linear-gradient(45deg,rgba(224,164,88,.22) 0 3px,transparent 3px 7px);border:1.5px solid var(--review)}
-.seg.removed{background:repeating-linear-gradient(45deg,rgba(139,149,166,.22) 0 3px,transparent 3px 7px);border:1.5px solid var(--excluded)}
-.seg.gap{background:rgba(127,135,150,.09)}
-.seg.sel{outline:2px solid var(--fg);outline-offset:0;z-index:3}
+.seg.auto_bridged{background-color:var(--sensor-soft);
+ background-image:repeating-linear-gradient(135deg,var(--sensor) 0 3px,transparent 3px 7px)}
+.seg.manual_added{background:var(--sensor);border-bottom:3px solid var(--accent)}
+/* review renders exactly as gap: the band behind it already says "in hours"
+   and the bare fill already says "not counted". */
+.seg.gap,.seg.review{background:var(--quiet)}
+.seg.removed{background:var(--quiet);border-bottom:3px solid var(--accent)}
 /* Provisional: the machine went quiet without ever saying it stopped, so this
    period's end is inferred, not measured. Distinct across the whole extent
    (desaturated + hatched), with the right edge fading out rather than ending
@@ -197,31 +220,79 @@ main{max-width:900px;margin:0 auto;padding:1rem}
    The trailing 118px column is reserved but left empty on purpose. */
 .mlane{display:grid;grid-template-columns:96px 1fr 118px;gap:.6rem;align-items:center;margin:.25rem 0}
 .mlabel{font-size:.72rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mlane .track{height:18px;cursor:pointer}
-.mlane .seg{top:2px;height:14px}
+.mlane .track{height:20px;cursor:pointer}
+.mlane .seg{top:3px;height:14px}
+/* Selection must come AFTER .mlane .seg — equal specificity, so source order
+   decides. It grows to the full track height and rings itself INWARD: the old
+   outline painted outside the box inside an overflow:hidden track, which on the
+   shorter raw lanes had no room and got shaved. Growth also keeps a segment at
+   min-width legible, which an inward ring alone would not. */
+.seg.sel{top:0;height:100%;outline:2px solid var(--fg);outline-offset:-2px;border-radius:3px;z-index:3}
 .detail{display:none;margin-top:.6rem;padding-top:.6rem;border-top:1px dashed var(--line2)}
 .lane.open .detail{display:block}
-.legend{display:flex;flex-wrap:wrap;gap:.15rem .8rem;font-size:.75rem;margin:.1rem 0 .6rem}
-.legend span{display:inline-flex;align-items:center;gap:.3rem;color:var(--muted)}
-.swatch{width:.8rem;height:.8rem;border-radius:2px;display:inline-block}
-.swatch.auto_bridged{background:var(--bridged)}
-.swatch.manual_added{background-color:var(--sensor);background-image:radial-gradient(rgba(255,255,255,.7) 1px,transparent 1.4px);background-size:4px 4px;background-position:center}
-.swatch.review{background:repeating-linear-gradient(45deg,rgba(224,164,88,.25) 0 3px,transparent 3px 6px);border:1px solid var(--review)}
-.swatch.removed{background:repeating-linear-gradient(45deg,rgba(139,149,166,.25) 0 3px,transparent 3px 6px);border:1px solid var(--excluded)}
-.swatch.gap{background:rgba(127,135,150,.18);border:1px solid var(--line)}
-.pt{width:.7rem;height:.7rem;border-radius:2px;display:inline-block;flex:none;border:1px solid transparent}
+/* The period marker doubles as the receipt's swatch — the receipt defines the
+   encoding exactly where it is used, which is what retires the old legend. Same
+   two channels as .seg, at dot scale. */
+.pt{width:.75rem;height:.75rem;border-radius:2px;display:inline-block;flex:none;border:1px solid transparent}
 .pt.sensor{background:var(--sensor)}
-.pt.auto_bridged{background:var(--bridged)}
-.pt.manual_added{background-color:var(--sensor);background-image:radial-gradient(rgba(255,255,255,.7) 1px,transparent 1.4px);background-size:4px 4px;background-position:center}
-.pt.review{background:repeating-linear-gradient(45deg,rgba(224,164,88,.35) 0 3px,transparent 3px 6px);border-color:var(--review)}
-.pt.removed{background:repeating-linear-gradient(45deg,rgba(139,149,166,.35) 0 3px,transparent 3px 6px);border-color:var(--excluded)}
-.pt.gap{background:rgba(127,135,150,.18);border-color:var(--line)}
-.strip{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;min-height:2.1rem;margin:.2rem 0 .55rem;padding:.4rem .55rem;background:var(--panel);border:1px solid var(--line);border-radius:8px}
-.strip .si{display:inline-flex;align-items:center;gap:.4rem;font-size:.85rem;font-variant-numeric:tabular-nums}
-.strip .act{margin-left:auto}
+.pt.auto_bridged{background-color:var(--sensor-soft);
+ background-image:repeating-linear-gradient(135deg,var(--sensor) 0 2px,transparent 2px 5px)}
+.pt.manual_added{background:var(--sensor);border-bottom:2px solid var(--accent)}
+.pt.gap,.pt.review{background:var(--quiet2);border-color:var(--line)}
+.pt.removed{background:var(--quiet2);border-bottom:2px solid var(--accent)}
+/* The receipt: the day's counted components summed into its worked time. It
+   replaces the legend, the old one-line summary, and the missing "prove it adds
+   up" surface all at once. */
+/* Bounded so it reads as a ledger with its amounts near their labels, rather
+   than a full-width row with the number stranded at the far edge. */
+.receipt{margin:.1rem 0 .5rem;max-width:26rem;font-size:.8rem;font-variant-numeric:tabular-nums}
+.receipt .r{display:grid;grid-template-columns:.75rem 1fr auto;gap:.5rem;align-items:center;padding:.13rem 0}
+.receipt .r .amt{text-align:right}
+.receipt .r.zero{color:var(--muted)}
+.receipt .r.rule{border-top:1px solid var(--line2);margin-top:.28rem;padding-top:.32rem}
+.receipt .r.worked{font-weight:650;font-size:.92rem}
+.receipt .r.sub{color:var(--muted)}
+/* Uncounted in-hours time: a statement of what the rules did, never a question. */
+.note{margin:0 0 .6rem;color:var(--muted);font-size:.78rem;line-height:1.45}
+.note button.lnk{background:none;border:none;padding:0;font:inherit;color:var(--muted);text-decoration:underline;cursor:pointer}
+/* The classifier replaces Count/Exclude/Move/Undo/Restore with one control:
+   three positions of "what was this time". Rendered inline at the selected row. */
+.cls{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:.1rem 0 .4rem 1.4rem;
+ padding:.45rem .6rem;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+.cls .lbl{font-size:.78rem;color:var(--muted)}
+.cls .prov{flex-basis:100%}
+.seg3{display:inline-flex;border:1px solid var(--line2);border-radius:6px;overflow:hidden}
+.seg3 button{border:none;border-radius:0;background:none;color:var(--fg);padding:.38rem .75rem;
+ cursor:pointer;font-size:.8rem;border-left:1px solid var(--line2)}
+.seg3 button:first-child{border-left:none}
+.seg3 button.cur{background:var(--sensor);color:#fff;cursor:default}
+.seg3 button:disabled:not(.cur){opacity:.35;cursor:not-allowed}
+/* Day-scope actions sit at the head of the period list, separated from the
+   per-period classifier — they act on the day, not on a selection. */
+.plisthead{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin:.6rem 0 .15rem}
+.plisthead h4{margin:0;flex:1;font-size:.7rem;font-weight:600;text-transform:uppercase;
+ letter-spacing:.05em;color:var(--muted)}
 .fillday{border-color:var(--sensor);color:var(--sensor)}
+.more{position:relative}
+.more>summary{list-style:none;cursor:pointer;padding:.25rem .55rem;border:1px solid var(--line);
+ border-radius:5px;font-size:.8rem;color:var(--fg)}
+.more>summary::-webkit-details-marker{display:none}
+.more .pop{position:absolute;right:0;top:calc(100% + .25rem);z-index:5;background:var(--bg);
+ border:1px solid var(--line);border-radius:6px;padding:.35rem;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.18)}
+/* Week transcription summary: the rounded half-hour values, the only place
+   rounding appears, kept visually distinct from the exact figures everywhere else. */
+.tsum{margin:.5rem 0 1rem;padding:.6rem .75rem;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+.tsum h3{margin:0;font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.tsum .vals{display:flex;flex-wrap:wrap;gap:.2rem 1.1rem;margin:.4rem 0 0;font-size:.9rem;font-variant-numeric:tabular-nums}
+.tsum .vals span b{font-weight:650;margin-left:.3rem}
+.tsum .vals .tot{border-left:1px solid var(--line2);padding-left:1.1rem}
 .plist{display:flex;flex-direction:column;gap:2px;margin:.3rem 0}
-.prow{display:grid;grid-template-columns:.9rem 96px auto 1fr;gap:.5rem;align-items:center;text-align:left;
+/* One .pitem per period: the row, plus the classifier when it is the selection.
+   The classifier lives here rather than in a standing strip so the verb sits
+   next to the period it acts on, and so nothing is mounted while nothing is
+   selected. */
+.pitem{display:flex;flex-direction:column}
+.prow{display:grid;grid-template-columns:.75rem 96px auto 1fr;gap:.5rem;align-items:center;text-align:left;
  background:none;border:1px solid transparent;border-radius:6px;color:var(--fg);padding:.3rem .4rem;cursor:pointer;font-size:.8rem;font-variant-numeric:tabular-nums}
 .prow:hover{background:var(--panel)}
 .prow.sel{border-color:var(--fg);background:var(--panel)}
@@ -230,6 +301,11 @@ main{max-width:900px;margin:0 auto;padding:1rem}
 .prow .pn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .adv{margin-top:.4rem}
 .adv summary{cursor:pointer;font-size:.85rem;padding:.2rem 0;color:var(--muted)}
+/* The exact-times inputs sit together as one range — the generic .row is
+   space-between, which pushed "To" to the far edge of the panel. */
+.times{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin:.3rem 0}
+.times label{display:inline-flex;align-items:center;gap:.35rem;margin:0;font-size:.8rem;color:var(--muted)}
+.times input{min-height:2.25rem}
 @media (max-width:640px){.summary{grid-template-columns:repeat(2,1fr)}
  .lane-head{grid-template-columns:1fr auto;grid-template-areas:"dl nums" "tl tl";row-gap:.45rem}
  .dl{grid-area:dl}.nums{grid-area:nums}.tl{grid-area:tl}
@@ -238,7 +314,15 @@ main{max-width:900px;margin:0 auto;padding:1rem}
     as the merged track in this layout. */
  .mlane{grid-template-columns:1fr;grid-template-areas:"mlbl" "mtrk";row-gap:.15rem}
  .mlane .mlabel{grid-area:mlbl}
- .mlane .track{grid-area:mtrk}}
+ .mlane .track{grid-area:mtrk}
+ /* Touch targets: period rows to >=44px, and the classifier goes full-width
+    so its three positions are thumb-sized rather than inline chips. */
+ .prow{padding:.62rem .4rem;min-height:44px;font-size:.82rem}
+ .cls{margin-left:0}
+ .cls .lbl{flex-basis:100%}
+ .seg3{display:flex;width:100%}
+ .seg3 button{flex:1;padding:.62rem .3rem;min-height:44px}
+ .tsum .vals .tot{border-left:none;padding-left:0;flex-basis:100%}}
 button.act{border:1px solid var(--line);background:none;color:var(--fg);padding:.25rem .5rem;border-radius:5px;cursor:pointer;font-size:.8rem}
 button.act:disabled{opacity:.4;cursor:not-allowed}
 input,select{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:5px;padding:.35rem}
@@ -271,7 +355,7 @@ table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:.35rem;b
 .gate .act{padding:.5rem 1rem}
 .badge{display:inline-block;padding:0 .4rem;font-size:.7rem;border-radius:4px;border:1px solid var(--line2);color:var(--muted);vertical-align:middle}
 .badge.active{color:var(--bg);background:var(--pos);border-color:var(--pos)}
-.badge.pending{color:var(--bg);background:var(--review);border-color:var(--review)}
+.badge.pending{color:var(--bg);background:var(--accent);border-color:var(--accent)}
 .badge.rejected,.badge.disabled{color:var(--bg);background:var(--neg);border-color:var(--neg)}
 .modetoggle{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
 .modetoggle button{border:none;border-radius:0;background:none;color:var(--fg);padding:.35rem .75rem;cursor:pointer;font-size:.85rem}
@@ -287,6 +371,11 @@ const S=window.__FLEXITRACKER__;
 const view=document.getElementById('view');
 document.getElementById('who').textContent=S.email;
 let TZ='UTC';
+// Office-hours window (minutes from midnight) and the private-leave threshold,
+// captured on each week load. The timeline band and the uncounted-time note
+// both need them, and the week view already fetches settings for the timezone.
+let OFFICE={start:0,end:0};
+let PLTSEC=0;
 const DAYNAMES=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 // Standalone daemon executables (published per release on the public repo).
 // The recommended install is "uv tool install flexitracker"; these are the
@@ -305,7 +394,6 @@ function hm(ms){const neg=ms<0;ms=Math.abs(ms);const m=Math.round(ms/60000);cons
 // zero. Durations keep unsigned hm(); balances use bal() so surplus/deficit read
 // at a glance.
 function bal(ms){const r=hm(Math.abs(ms));return ms>0?'+'+r:ms<0?'-'+r:r;}
-function round30(ms){return Math.round(ms/1800000)*1800000;}
 function clock(ts){return new Intl.DateTimeFormat('en-GB',{timeZone:TZ,hour:'2-digit',minute:'2-digit'}).format(ts);}
 function el(html){const t=document.createElement('template');t.innerHTML=html.trim();return t.content.firstChild;}
 // Machine labels and registration notes are free-text set by the account
@@ -315,6 +403,7 @@ function el(html){const t=document.createElement('template');t.innerHTML=html.tr
 function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 ${TIME_HELPERS_SRC}
 ${LANE_HELPERS_SRC}
+${CLASSIFY_HELPERS_SRC}
 
 const tabs=document.getElementById('tabs');
 tabs.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
@@ -326,7 +415,8 @@ let weekOffset=0;
 let ledgerMode='work';
 const TABS={
  async week(){view.textContent='Loading…';const [st,s,wk]=await Promise.all([api('/status'),api('/settings'),api('/week?offset='+weekOffset+'&ledger='+ledgerMode)]);
-  TZ=s.timezone;renderWeek(st,wk);},
+  TZ=s.timezone;OFFICE={start:s.workdayStartMin,end:s.workdayEndMin};PLTSEC=s.privateLeaveThresholdSec;
+  renderWeek(st,wk);},
  async settings(){renderSettings(await api('/settings'));},
  async machines(){renderMachines(await api('/machines'));},
  async admin(){renderAdmin();},
@@ -366,6 +456,7 @@ function renderWeek(st,wk){
     stat('Weekly norm',hm(wk.weeklyNormMs))+
     stat('Lunch',hm(lunchMs))+
     stat('Balance',bal(wk.weeklyBalanceMs),wk.weeklyBalanceMs>=0?'pos':'neg')+'</div>'));
+  view.append(transcription(wk));
  }else{
   view.append(el('<div class="summary">'+stat('Activity',hm(wk.weeklyWorkedMs))+'</div>'));
  }
@@ -375,18 +466,102 @@ function renderWeek(st,wk){
  document.getElementById('next').onclick=()=>{weekOffset++;openDay=null;TABS.week();};
 }
 
-// Human labels and the state-appropriate action(s) for each period type. A
-// counting period (sensor/auto_bridged/manual_added) offers Move to other
-// side alongside its primary action — moving reclassifies already-counted
-// time between ledgers regardless of provenance.
-const TYPELABEL={sensor:'measured',auto_bridged:'auto-bridged',manual_added:'added by you',
- review:'excluded (review)',removed:'excluded (removed)',gap:'idle / no activity'};
-function actionsFor(t){
- if(t==='sensor'||t==='auto_bridged')return[{label:'Exclude',act:'exclude'},{label:'Move to other side',act:'move'}];
- if(t==='review'||t==='gap')return[{label:'Count as work',act:'count'}];
- if(t==='manual_added')return[{label:'Undo addition',act:'undo'},{label:'Move to other side',act:'move'}];
- if(t==='removed')return[{label:'Restore as work',act:'restore'}];
- return[];
+// The ONLY place rounding appears. Everything else on screen is exact, so no
+// two figures shown together are derived on different bases — the old lane put
+// a rounded 8h 00m beside an exact-derived +16m and read as an arithmetic error.
+// Decimal hours (8.0 / 7.5) is what timesheet systems take, and the format
+// difference from the lane's 7h 46m is itself the signal that these differ.
+function transcription(wk){
+ const t=transcriptionRows(wk.days,DAYNAMES);
+ const box=el('<div class="tsum"><div class="row"><h3>To transcribe</h3></div></div>');
+ if(!t.rows.length){box.append(el('<p class="muted">No working time this week.</p>'));return box;}
+ const vals=el('<div class="vals"></div>');
+ t.rows.forEach(r=>vals.append(el('<span>'+r[0]+'<b>'+r[1]+'</b></span>')));
+ vals.append(el('<span class="tot">Total<b>'+t.total+'</b></span>'));
+ box.append(vals);
+ const b=el('<button class="act">Copy</button>');
+ b.onclick=async()=>{
+  try{await navigator.clipboard.writeText(t.tsv);b.textContent='Copied ✓';}
+  catch{b.textContent='Copy failed';}
+ };
+ box.querySelector('.row').append(b);
+ return box;
+}
+
+// One vocabulary, used by the timeline, the period list, and the receipt alike.
+// review and gap share a label deliberately: they are identical in effect (both
+// uncounted), and the office-hours band behind them carries the only difference.
+const TYPELABEL={sensor:'at the computer',auto_bridged:'short break, counted',
+ manual_added:'you added this',review:'away',removed:'you excluded this',gap:'away'};
+
+// Inline --ofs/--ofe for the office-hours band. Work ledger only: the personal
+// ledger applies no office-hours gating, so a band there would advertise a rule
+// that does not run.
+function bandStyle(){
+ if(ledgerMode!=='work'||!(OFFICE.end>OFFICE.start))return '';
+ return ' style="--ofs:'+(OFFICE.start/1440*100)+'%;--ofe:'+(OFFICE.end/1440*100)+'%"';
+}
+
+// Where a period sits now, in the ledger being viewed. A counted period is at
+// the current ledger's position by definition — the partition is ledger-scoped.
+function currentPos(p){return countsNow(p)?ledgerMode:'neither';}
+
+// The classifier: one control replacing Count as work / Exclude / Move to other
+// side / Undo addition / Restore as work. The user states what the time WAS and
+// the client picks the primitive — sometimes creating a correction, sometimes
+// deleting one. "Exclude" and "Move" were near-synonyms as sibling verbs (for
+// the work total they are identical); as two positions of one control the
+// difference is structural: Neither counts nowhere, Personal counts there.
+function classifier(lead,cur,enabled,onPick){
+ const box=el('<div class="cls"></div>');
+ box.append(el('<span class="lbl">'+lead+'</span>'));
+ const g=el('<div class="seg3"></div>');
+ [['work','Work'],['personal','Personal'],['neither','Neither']].forEach(function(o){
+  const v=o[0];
+  const b=el('<button'+(v===cur?' class="cur"':'')+'>'+o[1]+'</button>');
+  if(v===cur){b.disabled=true;b.title='This is how the time counts now.';}
+  else if(!enabled(v)){b.disabled=true;
+   b.title='Nothing in this selection to change in the '+ledgerMode+' view.';}
+  else b.onclick=()=>onPick(v);
+  g.append(b);
+ });
+ box.append(g);
+ return box;
+}
+
+// Apply a classifier choice to an exact period, which carries correction
+// identity. The decision lives in classifyPlan (pure, unit-tested); this only
+// executes the ops it returns.
+async function classifyPeriod(d,p,target){
+ // A still-growing period's boundaries are advancing, so a correction built
+ // from them is already stale.
+ if(p.provisional&&p.growing)return;
+ const plan=classifyPlan(p,target,ledgerMode);
+ if(!plan.length)return;
+ for(const step of plan){
+  if(step.op==='del')for(const id of (p.correctionIds||[]))await api('/corrections/'+id,{method:'DELETE'});
+  else if(step.op==='add')await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:p.start,end:p.end,ledger:step.ledger})});
+  else if(step.op==='remove')await api('/corrections',{method:'POST',body:JSON.stringify({kind:'remove_work',start:p.start,end:p.end,ledger:step.ledger})});
+  else if(step.op==='move')await api('/corrections/move',{method:'POST',body:JSON.stringify({start:p.start,end:p.end,fromLedger:step.from})});
+ }
+ reload();
+}
+
+// Which positions a selection WITHOUT correction identity (a raw per-machine
+// segment, or a typed range) may take — the existing overlap rule, unchanged:
+// it can be counted where it overlaps something uncounted, and excluded or
+// moved where it overlaps counted sensor/auto-bridged time. Deliberately not
+// manual_added: a plain remove_work is already a no-op against it.
+function rangeEnabled(d,start,end){
+ const canAdd=overlapsTypes(d,start,end,['gap','review','removed']);
+ const canRm=overlapsTypes(d,start,end,['sensor','auto_bridged']);
+ return v=>v===ledgerMode?canAdd:canRm;
+}
+async function classifyRange(d,start,end,target){
+ if(target===ledgerMode)await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start,end,ledger:ledgerMode})});
+ else if(target==='neither')await api('/corrections',{method:'POST',body:JSON.stringify({kind:'remove_work',start,end,ledger:ledgerMode})});
+ else await api('/corrections/move',{method:'POST',body:JSON.stringify({start,end,fromLedger:ledgerMode})});
+ reload();
 }
 // A plain idle gap that runs from or to local midnight (e.g. an overnight
 // 00:00–08:00 stretch, or evening idle ending at 24:00) is almost never work, so
@@ -407,6 +582,9 @@ function clearSelection(lane){
  selPeriod=null;
  lane.querySelectorAll('.seg.sel').forEach(s=>s.classList.remove('sel'));
  lane.querySelectorAll('.prow.sel').forEach(r=>r.classList.remove('sel'));
+ // The classifier is mounted at the selection, so clearing the selection
+ // unmounts it — nothing action-shaped is left on screen with nothing selected.
+ lane.querySelectorAll('.cls').forEach(x=>x.remove());
 }
 
 // One day = one inline lane: label · full 0–24h timeline+ruler · numbers, with
@@ -432,29 +610,44 @@ function dayLane(d,i,now){
  const balCls=d.balanceMs>=0?'pos':'neg';
  const balTxt=(!zeroNorm||d.balanceMs!==0)?bal(d.balanceMs):'—';
  const tag=!isWork?'':d.isHoliday?'<span class="offtag holiday">holiday</span>':(d.isWorkingDay?'':'<span class="offtag">off</span>');
+ // Exact, never rounded: the balance beside it is exact-derived, so a rounded
+ // figure here would not reconcile with it (and the days would not sum to the
+ // week). The rounded value lives in the transcription summary alone.
  const nums=isWork
-   ?('<span class="worked">'+hm(round30(d.workedMs))+'</span>'+
+   ?('<span class="worked">'+hm(d.workedMs)+'</span>'+
      (d.lunchMs>0?'<span class="lunch">Lunch '+hm(d.lunchMs)+'</span>':'')+
      '<span class="bal '+balCls+'">'+balTxt+'</span>')
-   :'<span class="worked">'+hm(round30(d.workedMs))+'</span>';
+   :'<span class="worked">'+hm(d.workedMs)+'</span>';
  const lane=el('<div class="lane'+(isToday?' today':'')+(zeroNorm?' off':'')+(isWork&&d.isHoliday?' holiday':'')+(d.dayStart===openDay?' open':'')+'">'+
    '<div class="lane-head">'+
    '<div class="dl"><b><span class="chev">▶</span>'+DAYNAMES[i]+'</b><span class="date">'+dayFmt(d.dayStart)+tag+'</span></div>'+
-   '<div class="tl"><div class="track">'+bars+'</div><div class="hours">'+hrs+'</div></div>'+
+   '<div class="tl"><div class="track"'+bandStyle()+'>'+bars+'</div><div class="hours">'+hrs+'</div></div>'+
    '<div class="nums">'+nums+'</div>'+
    '</div><div class="detail"></div></div>');
  buildDetail(lane,d);
  const track=lane.querySelector('.track');
- // Selecting a period: highlight its segment on the bar + its row in the list,
- // and render the action strip. Resolving by index keeps tiny segments usable —
- // a click anywhere on the track maps to the period covering that instant.
+ // Selecting a period: highlight its segment on the bar and its row in the list,
+ // and mount the classifier AT that row — so the verb sits next to the period it
+ // acts on, and both selection sources converge on one presentation. Resolving
+ // by index keeps tiny segments usable: a click anywhere on the track maps to
+ // the period covering that instant.
  const select=idx=>{
   if(!canSelect(d,d.periods[idx]))return; // midnight-touching idle gaps are inert
   clearSelection(lane);
   selPeriod={dayStart:d.dayStart,idx};
   const segEl=track.querySelector('.seg[data-i="'+idx+'"]');if(segEl)segEl.classList.add('sel');
-  const rowEl=lane.querySelector('.prow[data-i="'+idx+'"]');if(rowEl)rowEl.classList.add('sel');
-  renderStrip(lane.querySelector('.strip'),d,idx);
+  const rowEl=lane.querySelector('.prow[data-i="'+idx+'"]');
+  if(!rowEl)return;
+  rowEl.classList.add('sel');
+  const p=d.periods[idx];
+  // Withheld while GROWING, not merely while provisional: a machine that never
+  // returns leaves a permanently provisional period, and withholding forever
+  // would make it impossible to fix.
+  const growing=!!(p.provisional&&p.growing);
+  const cls=classifier('This time was',currentPos(p),()=>!growing,v=>classifyPeriod(d,p,v));
+  if(p.provisional)cls.append(el('<span class="prov">no end recorded — last seen '+clock(p.lastAlive)+'</span>'));
+  if(growing)cls.append(el('<span class="muted">Still in progress — editable once this machine stops reporting.</span>'));
+  rowEl.parentNode.append(cls);
  };
  lane.__select=select;
  lane.querySelector('.tl').addEventListener('click',e=>{
@@ -470,57 +663,6 @@ function dayLane(d,i,now){
  return lane;
 }
 
-// Apply one action for the selected period, then re-render the week.
-async function actOn(d,p,act){
- // Refuse a still-growing period here too, not only in the strip: its boundaries
- // are still advancing, so a correction built from them is already stale.
- if(p.provisional&&p.growing)return;
- if(act==='count')await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:p.start,end:p.end,ledger:ledgerMode})});
- else if(act==='exclude')await api('/corrections',{method:'POST',body:JSON.stringify({kind:'remove_work',start:p.start,end:p.end,ledger:ledgerMode})});
- else if(act==='undo'||act==='restore')for(const id of (p.correctionIds||[]))await api('/corrections/'+id,{method:'DELETE'});
- else if(act==='move'){
-  if(p.type==='manual_added'){
-   // A manual addition is already covered by its own add_work — a plain
-   // remove_work here would lose to it (add_work always wins), so move it by
-   // deleting the addition and re-adding it on the other ledger instead.
-   for(const id of (p.correctionIds||[]))await api('/corrections/'+id,{method:'DELETE'});
-   const other=ledgerMode==='work'?'personal':'work';
-   await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:p.start,end:p.end,ledger:other})});
-  }else{
-   await api('/corrections/move',{method:'POST',body:JSON.stringify({start:p.start,end:p.end,fromLedger:ledgerMode})});
-  }
- }
- reload();
-}
-// Apply an action for a selection with no correction identity (a raw
-// per-machine segment, or a manually-typed range) — always the plain
-// add_work/remove_work/move primitives, never the manual_added
-// delete-and-recreate special case in actOn: that case is unreachable here
-// because overlapsTypes never offers Move on manual_added-only overlap (see
-// manual-corrections "Action availability for a selection without
-// correction identity"), and a mixed overlap safely moves only its
-// sensor/auto_bridged portion via the ordinary remove_work/add_work pair.
-async function actOnRange(start,end,act){
- if(act==='count')await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start,end,ledger:ledgerMode})});
- else if(act==='exclude')await api('/corrections',{method:'POST',body:JSON.stringify({kind:'remove_work',start,end,ledger:ledgerMode})});
- else if(act==='move')await api('/corrections/move',{method:'POST',body:JSON.stringify({start,end,fromLedger:ledgerMode})});
- reload();
-}
-// Render the action strip for a selection without correction identity —
-// shared by a raw-lane segment click and the Advanced control.
-function renderRangeStrip(strip,d,start,end,label,prov){
- strip.innerHTML='';
- strip.append(el('<span class="si">'+(label?escHtml(label)+' · ':'')+clock(start)+'–'+clock(end)+' · '+hm(end-start)+'</span>'));
- if(prov){
-  strip.append(el('<span class="prov">no end recorded — last seen '+clock(prov.lastAlive)+'</span>'));
-  if(prov.growing){strip.append(el('<span class="muted">Still in progress — editable once this machine stops reporting.</span>'));return;}
- }
- const acts=[];
- if(overlapsTypes(d,start,end,['gap','review','removed']))acts.push({label:'Count as work',act:'count'});
- if(overlapsTypes(d,start,end,['sensor','auto_bridged'])){acts.push({label:'Exclude',act:'exclude'});acts.push({label:'Move to other side',act:'move'});}
- if(!acts.length){strip.append(el('<span class="muted">Nothing to act on here in the '+ledgerMode+' view.</span>'));return;}
- for(const v of acts){const b=el('<button class="act">'+v.label+'</button>');b.onclick=()=>actOnRange(start,end,v.act);strip.append(b);}
-}
 // Fill the office day: add work over each review/gap period inside the envelope,
 // leaving removed periods (explicit exclusions) untouched. Work-ledger only —
 // the personal ledger never exposes an office envelope to fill.
@@ -534,144 +676,176 @@ async function fillDay(d){
  reload();
 }
 
-// The expandable panel: summary, legend, contextual action strip, whole-day
-// fill, a mirrored selectable period list, and an advanced exact-times control.
+// The expanded panel, in the order the day is actually READ: the receipt (why
+// the number is what it is), then the periods (where the time went, and the
+// only place per-period actions live), then the collapsed escape hatches. The
+// old order — summary, legend, empty strip, raw lanes, day buttons, list — was
+// set by the sequence features landed in, and answered "what can I do here?"
+// when the user opening a day is almost always asking "why is this number this?"
 function buildDetail(lane,d){
  const c=lane.querySelector('.detail');
  const isWork=ledgerMode==='work';
- c.append(el('<div class="row"><span class="muted">'+
-   (isWork?('Total '+hm(d.grossMs)+' · Lunch '+hm(d.lunchMs)+' · Worked '+hm(d.workedMs)):('Activity '+hm(d.grossMs)))+
-   '</span></div>'));
- // Personal mode never produces auto_bridged/review periods (no office-hours
- // concept), so their swatches would just be noise there.
- c.append(el('<div class="legend"><span><i class="swatch" style="background:var(--sensor)"></i>measured</span>'+
-   (isWork?'<span><i class="swatch auto_bridged"></i>auto-bridged</span>':'')+
-   '<span><i class="swatch manual_added"></i>added by you</span>'+
-   (isWork?'<span><i class="swatch review"></i>excluded (review)</span>':'')+
-   '<span><i class="swatch removed"></i>excluded (removed)</span>'+
-   '<span><i class="swatch gap"></i>idle</span></div>'));
- c.append(el('<div class="strip"></div>'));
- // Raw per-machine lanes: always shown, one per machine that contributed any
- // activity that day (even just one machine) — literal sensor activity only,
- // no bridging, no corrections. Clicking a segment seeds the same strip above
- // with that segment's own [start,end]; it never changes based on
- // corrections, since corrections only ever target the merged lane above.
- const activity=d.machineActivity||[];
- if(activity.length){
-  const mlanes=el('<div class="mlanes"></div>');
-  const pct=ts=>Math.max(0,Math.min(100,((ts-d.dayStart)/86400000)*100));
-  activity.forEach(ma=>{
-   const segs=markRawProvisional(rawTile(ma.active,d.dayStart),ma.provisional);
-   const row=el('<div class="mlane"><div class="mlabel">'+escHtml(ma.label||'Unnamed machine')+'</div><div class="track"></div></div>');
-   const track=row.querySelector('.track');
-   segs.forEach((s,idx)=>{
-    track.appendChild(el('<div class="seg '+(s.type==='active'?'sensor':'gap')+(s.provisional?' provisional':'')+
-      '" data-i="'+idx+'" style="left:'+pct(s.start)+'%;width:'+(pct(s.end)-pct(s.start))+'%"></div>'));
-   });
-   track.addEventListener('click',e=>{
-    const r=track.getBoundingClientRect();const frac=(e.clientX-r.left)/r.width;
-    const ts=d.dayStart+Math.max(0,Math.min(0.999999,frac))*86400000;
-    const idx=segs.findIndex(s=>s.start<=ts&&s.end>ts);
-    if(idx<0)return;
-    const s=segs[idx];
-    // Same rule as the merged track: a gap touching local midnight is inert.
-    if(s.type==='gap'&&(s.start===d.dayStart||s.end===d.dayStart+86400000))return;
-    clearSelection(lane);
-    track.querySelectorAll('.seg')[idx].classList.add('sel');
-    renderRangeStrip(lane.querySelector('.strip'),d,s.start,s.end,ma.label,
-      s.provisional?{growing:s.growing,lastAlive:s.lastAlive}:null);
-   });
-   mlanes.append(row);
-  });
-  c.append(mlanes);
+ c.append(receipt(d,isWork));
+ const note=uncountedNote(d,isWork);
+ if(note)c.append(note);
+ c.append(periodList(lane,d,isWork));
+ if((d.machineActivity||[]).length)c.append(rawLanes(lane,d));
+ c.append(advanced(lane,d));
+}
+
+// The receipt: the day's counted components summed into its worked time. It
+// does three jobs the panel previously needed three components for — it
+// explains the number, it defines the timeline's swatches (each row carries the
+// same marker the bar uses), and it proves the arithmetic. That is what retires
+// the legend, which sat between the merged lane and the raw lanes decoding
+// neither adjacently.
+function receipt(d,isWork){
+ const sum=t=>d.periods.reduce((n,p)=>n+(p.type===t?p.end-p.start:0),0);
+ const box=el('<div class="receipt"></div>');
+ // A zero component keeps its row (with a placeholder) so the receipt's shape
+ // does not shift between days.
+ const comp=(type,label)=>{const ms=sum(type);
+  box.append(el('<div class="r'+(ms?'':' zero')+'"><i class="pt '+type+'"></i><span>'+label+
+    '</span><span class="amt">'+(ms?hm(ms):'—')+'</span></div>'));};
+ const line=(cls,label,amt)=>box.append(el('<div class="r '+cls+'"><i></i><span>'+label+
+   '</span><span class="amt">'+amt+'</span></div>'));
+ comp('sensor','at the computer');
+ if(isWork)comp('auto_bridged','short breaks, counted');
+ comp('manual_added','you added');
+ if(isWork){
+  line('rule sub','before lunch',hm(d.grossMs));
+  if(d.lunchMs>0)line('sub','lunch','−'+hm(d.lunchMs));
+  line('worked','worked',hm(d.workedMs));
+ }else{
+  line('rule worked','total activity',hm(d.grossMs));
  }
- const dayacts=el('<div class="row"></div>');
- // Both day-level actions are work-ledger-only concepts: the office envelope
- // (fill) and the norm (holiday) don't exist in personal mode.
+ return box;
+}
+
+// Uncounted in-hours time, stated as a fact about what the rules did. Never a
+// question, never an action, and no badge anywhere in the week view: the rules
+// already classified this exactly as they classified the short break beside it,
+// and a prompt would imply they are provisional. The threshold links to
+// Settings, because overriding the same rule every week is a settings problem,
+// not a workflow.
+function uncountedNote(d,isWork){
+ if(!isWork)return null;
+ const rev=d.periods.filter(p=>p.type==='review');
+ if(!rev.length)return null;
+ const total=rev.reduce((n,p)=>n+(p.end-p.start),0);
+ const what=rev.length===1
+   ?hm(total)+' away '+clock(rev[0].start)+'–'+clock(rev[0].end)
+   :hm(total)+' away in '+rev.length+' periods';
+ const p=el('<p class="note">'+what+' — not counted, over your '+
+   '<button class="lnk">'+hm(PLTSEC*1000)+' break limit</button>.</p>');
+ p.querySelector('.lnk').onclick=()=>{
+  for(const x of tabs.children)x.classList.toggle('active',x.dataset.tab==='settings');
+  TABS.settings();
+ };
+ return p;
+}
+
+// The day's periods, with the day-scope actions at their head — those act on
+// the day, not on a selection, so they are kept clear of the per-period
+// classifier rather than sitting mid-panel between two period surfaces.
+function periodList(lane,d,isWork){
+ const box=el('<div></div>');
+ const head=el('<div class="plisthead"><h4>When</h4></div>');
  if(isWork&&d.officeEnvelope){
   const b=el('<button class="act fillday">Mark whole day as work</button>');
   b.onclick=()=>fillDay(d);
-  dayacts.append(b);
+  head.append(b);
  }
- // Day-level holiday toggle: a full-day marker that zeroes the norm (credit-only).
- // Only offered on working days — a non-working day is already off, so there is
- // nothing to relieve. (A day already marked can still be cleared, defensively.)
+ // Holiday is rare and is about the day's NORM rather than its time, so it goes
+ // in an overflow beside the primary day action.
  if(isWork&&(d.isWorkingDay||d.isHoliday)){
-  const hb=el('<button class="act holiday">'+(d.isHoliday?'Clear holiday':'Mark as holiday')+'</button>');
+  const m=el('<details class="more"><summary>⋯</summary><div class="pop"></div></details>');
+  const hb=el('<button class="act">'+(d.isHoliday?'Clear holiday':'Mark as holiday')+'</button>');
   hb.onclick=async()=>{
    if(d.isHoliday)for(const id of (d.holidayCorrectionIds||[]))await api('/corrections/'+id,{method:'DELETE'});
    else await api('/corrections',{method:'POST',body:JSON.stringify({kind:'holiday',start:d.dayStart,end:d.dayStart+86400000})});
    reload();
   };
-  dayacts.append(hb);
+  m.querySelector('.pop').append(hb);
+  head.append(m);
  }
- if(dayacts.childElementCount)c.append(dayacts);
- // Mirrored period list — the accessible / precision selection path.
+ box.append(head);
  const list=el('<div class="plist"></div>');
  d.periods.forEach((p,idx)=>{
   const dis=!canSelect(d,p); // overnight idle gaps are not selectable
+  const item=el('<div class="pitem"></div>');
   const row=el('<button class="prow'+(dis?' disabled':'')+'" data-i="'+idx+'"'+(dis?' disabled':'')+'><span class="pt '+p.type+(p.provisional?' provisional':'')+'"></span>'+
     '<span class="pr">'+clock(p.start)+(p.provisional?'–?':'–'+clock(p.end))+'</span>'+
     '<span class="pd muted">'+hm(p.end-p.start)+'</span>'+
     '<span class="pn muted">'+TYPELABEL[p.type]+(p.provisional?', last seen '+clock(p.lastAlive):'')+'</span></button>');
   if(!dis)row.onclick=()=>lane.__select(idx);
-  list.append(row);
+  item.append(row);
+  list.append(item);
  });
- c.append(list);
- // Advanced: exact times, for a boundary no existing period or raw segment offers.
- const adv=el('<details class="adv"><summary class="muted">Advanced: enter exact times</summary>'+
-   '<div class="row"><label>From<input type="time" class="cs" value="12:00"></label>'+
-   '<label>To<input type="time" class="ce" value="13:00"></label>'+
-   '<button class="act add">Add work</button><button class="act rm">Mark private</button>'+
-   '<button class="act mv">Move to other side</button></div></details>');
- c.append(adv);
- const toTs=inp=>{const[h,m]=inp.value.split(':').map(Number);return d.dayStart+((h*60+m)*60000);};
- const cs=adv.querySelector('.cs'),ce=adv.querySelector('.ce'),addb=adv.querySelector('.add'),rm=adv.querySelector('.rm'),mv=adv.querySelector('.mv');
- // Disable each button when the entered range would be a no-op (also covers an
- // inverted range and an empty day/weekend): "Add work" only adds currently
- // non-work time (a gap, reviewable, or previously-removed period); "Mark
- // private"/"Move" only act on counted sensor/auto-bridged time — never on
- // manual_added alone, since a plain remove_work has no effect there (see
- // manual-corrections "Action availability for a selection without
- // correction identity"). A mixed range still enables them and only its
- // sensor/auto-bridged portion is affected.
- const overlaps=types=>overlapsTypes(d,toTs(cs),toTs(ce),types);
- // A disabled button keeps a title so hovering explains why it is greyed out.
- const sync=()=>{
-  const canAdd=overlaps(['gap','review','removed']),canRm=overlaps(['sensor','auto_bridged']);
-  addb.disabled=!canAdd;rm.disabled=!canRm;mv.disabled=!canRm;
-  addb.title=canAdd?'':'Nothing to add in this range — it is already counted as work. Add work only fills a gap, a reviewable break, or a previously removed period.';
-  rm.title=canRm?'':'Nothing to remove in this range — it has no counted work. Mark private only excludes measured or auto-bridged time.';
-  mv.title=canRm?'':'Nothing to move in this range — it has no counted work in the current view.';
- };
- cs.addEventListener('input',sync);ce.addEventListener('input',sync);sync();
- addb.onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:toTs(cs),end:toTs(ce),ledger:ledgerMode})});reload();};
- rm.onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'remove_work',start:toTs(cs),end:toTs(ce),ledger:ledgerMode})});reload();};
- mv.onclick=async()=>{await api('/corrections/move',{method:'POST',body:JSON.stringify({start:toTs(cs),end:toTs(ce),fromLedger:ledgerMode})});reload();};
+ box.append(list);
+ return box;
 }
 
-// Render the contextual action strip for the selected period (or a hint).
-function renderStrip(strip,d,idx){
- strip.innerHTML='';
- const p=d.periods[idx];
- if(!p){strip.append(el('<span class="muted">Tap a period on the timeline to edit it.</span>'));return;}
- const acts=actionsFor(p.type);
- strip.append(el('<span class="si"><span class="pt '+p.type+(p.provisional?' provisional':'')+'"></span>'+clock(p.start)+'–'+clock(p.end)+
-   ' · '+hm(p.end-p.start)+' · '+TYPELABEL[p.type]+'</span>'));
- if(p.provisional){
-  // Say what is actually known: active at least until lastAlive, then unknown.
-  strip.append(el('<span class="prov">no end recorded — last seen '+clock(p.lastAlive)+'</span>'));
- }
- // Actions are withheld while the period is still GROWING, not merely while it
- // is provisional. A correction anchored to an edge that is still advancing is
- // not the correction the user meant — but a machine that never returns leaves
- // a permanently provisional period, and withholding forever would make it
- // impossible to fix.
- if(p.provisional&&p.growing){
-  strip.append(el('<span class="muted">Still in progress — editable once this machine stops reporting.</span>'));
-  return;
- }
- for(const v of acts){const b=el('<button class="act">'+v.label+'</button>');b.onclick=()=>actOn(d,p,v.act);strip.append(b);}
+// Raw per-machine lanes, collapsed by default. For the single-machine user —
+// the common case — an always-open raw lane duplicates the merged lane and adds
+// a second full-width chart to parse. A collapsed heading is an equally
+// consistent shape, without paying the redundancy on every day.
+function rawLanes(lane,d){
+ const box=el('<details class="adv"><summary class="muted">What each computer recorded</summary></details>');
+ const mlanes=el('<div class="mlanes"></div>');
+ const pct=ts=>Math.max(0,Math.min(100,((ts-d.dayStart)/86400000)*100));
+ (d.machineActivity||[]).forEach(ma=>{
+  const segs=markRawProvisional(rawTile(ma.active,d.dayStart),ma.provisional);
+  const row=el('<div class="mlane"><div class="mlabel">'+escHtml(ma.label||'Unnamed machine')+'</div><div class="track"'+bandStyle()+'></div></div>');
+  const track=row.querySelector('.track');
+  segs.forEach((s,idx)=>{
+   track.appendChild(el('<div class="seg '+(s.type==='active'?'sensor':'gap')+(s.provisional?' provisional':'')+
+     '" data-i="'+idx+'" style="left:'+pct(s.start)+'%;width:'+(pct(s.end)-pct(s.start))+'%"></div>'));
+  });
+  track.addEventListener('click',e=>{
+   const r=track.getBoundingClientRect();const frac=(e.clientX-r.left)/r.width;
+   const ts=d.dayStart+Math.max(0,Math.min(0.999999,frac))*86400000;
+   const idx=segs.findIndex(s=>s.start<=ts&&s.end>ts);
+   if(idx<0)return;
+   const s=segs[idx];
+   // Same rule as the merged track: a gap touching local midnight is inert.
+   if(s.type==='gap'&&(s.start===d.dayStart||s.end===d.dayStart+86400000))return;
+   clearSelection(lane);
+   track.querySelectorAll('.seg')[idx].classList.add('sel');
+   const growing=!!(s.provisional&&s.growing);
+   // No correction identity here, so the positions are overlap-gated and no
+   // current position is claimed — the raw lane does not know the merged state.
+   const cls=classifier(escHtml(ma.label||'')+' · '+clock(s.start)+'–'+clock(s.end)+' · '+hm(s.end-s.start),
+     null,growing?()=>false:rangeEnabled(d,s.start,s.end),v=>classifyRange(d,s.start,s.end,v));
+   if(s.provisional)cls.append(el('<span class="prov">no end recorded — last seen '+clock(s.lastAlive)+'</span>'));
+   if(growing)cls.append(el('<span class="muted">Still in progress — editable once this machine stops reporting.</span>'));
+   row.after(cls);
+  });
+  mlanes.append(row);
+ });
+ box.append(mlanes);
+ return box;
+}
+
+// Exact times: the escape hatch for a boundary no period or raw segment offers.
+// It uses the SAME classifier as a selected period — the old control called the
+// identical remove_work primitive "Mark private" while the action strip called
+// it "Exclude", which is exactly the kind of divergence this change removes.
+function advanced(lane,d){
+ const adv=el('<details class="adv"><summary class="muted">Enter exact times</summary>'+
+   '<div class="times"><label>From<input type="time" class="cs" value="12:00"></label>'+
+   '<label>To<input type="time" class="ce" value="13:00"></label></div></details>');
+ const toTs=inp=>{const p=inp.value.split(':');return d.dayStart+((Number(p[0])*60+Number(p[1]))*60000);};
+ const cs=adv.querySelector('.cs'),ce=adv.querySelector('.ce');
+ let cls=null;
+ const sync=()=>{
+  if(cls)cls.remove();
+  const s=toTs(cs),e=toTs(ce);
+  cls=classifier('This time was',null,rangeEnabled(d,s,e),v=>classifyRange(d,s,e,v));
+  adv.append(cls);
+ };
+ cs.addEventListener('input',sync);ce.addEventListener('input',sync);sync();
+ return adv;
 }
 // Re-fetch and re-render the week in place; dayLane reopens the expanded day.
 // Selection is dropped — the partition changes after any correction.
