@@ -74,4 +74,4 @@ Ran the full E2E fixtures suite against a real `wrangler dev` instance (all 4 we
 ## 11. Docs
 
 - [x] 11.1 Update `CLAUDE.md` if any new pitfall surfaces during implementation (per this project's "document root causes" convention) — added the `wipeRegistry()` gap to "Known pitfalls"
-- [ ] 11.2 Run `/opsx:archive` once implementation and QA e2e are green — **not yet**: this requires the real deploy pipeline (GitHub Actions → live QA e2e), which hasn't run. Next step is to commit, push, let CI run the QA e2e (extended fixtures included), then archive once green.
+- [x] 11.2 Run `/opsx:archive` once implementation and QA e2e are green — QA e2e failed once transiently (`/test/move -> 500 {}`, unreproducible via direct curl or a fresh local run against the same live QA target), passed clean on re-run, and PROD promoted. Archiving now.
