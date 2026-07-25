@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TIME_HELPERS_SRC } from "../src/ui/client-helpers";
+import { LANE_HELPERS_SRC, TIME_HELPERS_SRC } from "../src/ui/client-helpers";
 
 // The browser client is a plain string, so these helpers are defined as source
 // and inlined into it. Evaluating that same source here means the tests
@@ -83,5 +83,109 @@ describe("minToHM / hmToMin", () => {
     const { h, m } = minToHM(7200 / 60);
     expect({ h, m }).toEqual({ h: 2, m: 0 });
     expect(hmToMin(h, m) * 60).toBe(7200);
+  });
+});
+
+const laneHelpers = new Function(
+  `${LANE_HELPERS_SRC}; return { overlapsTypes, rawTile, markRawProvisional };`,
+)() as {
+  overlapsTypes: (
+    d: { periods: { start: number; end: number; type: string }[] },
+    s: number,
+    e: number,
+    types: string[],
+  ) => boolean;
+  rawTile: (
+    active: { start: number; end: number }[],
+    dayStart: number,
+  ) => { start: number; end: number; type: "active" | "gap" }[];
+  markRawProvisional: (
+    segs: { start: number; end: number; type: string; provisional?: boolean }[],
+    provisional: { start: number; end: number; growing: boolean; lastAlive: number }[],
+  ) => unknown;
+};
+const { overlapsTypes, rawTile, markRawProvisional } = laneHelpers;
+
+const H = 3_600_000;
+const DAY = Date.UTC(2024, 5, 3);
+const at = (h: number) => DAY + h * H;
+const period = (start: number, end: number, type: string) => ({ start, end, type });
+
+describe("overlapsTypes — the shared enablement rule for a selection without correction identity", () => {
+  const periods = [
+    period(at(0), at(8), "gap"),
+    period(at(8), at(12), "sensor"),
+    period(at(12), at(13), "manual_added"),
+    period(at(13), at(24), "gap"),
+  ];
+  const d = { periods };
+
+  it("is true when the range overlaps a matching type", () => {
+    expect(overlapsTypes(d, at(9), at(10), ["sensor", "auto_bridged"])).toBe(true);
+    expect(overlapsTypes(d, at(1), at(2), ["gap", "review", "removed"])).toBe(true);
+  });
+
+  it("is false for a pure manual_added overlap — Exclude/Move are never offered on it alone", () => {
+    expect(overlapsTypes(d, at(12), at(13), ["sensor", "auto_bridged"])).toBe(false);
+  });
+
+  it("is true for a mixed sensor + manual_added range — the movable portion is enough", () => {
+    // 11:00-12:30 overlaps both the sensor period (08-12) and manual_added (12-13).
+    expect(overlapsTypes(d, at(11), at(12.5), ["sensor", "auto_bridged"])).toBe(true);
+  });
+
+  it("is false for an inverted or empty range", () => {
+    expect(overlapsTypes(d, at(10), at(10), ["sensor"])).toBe(false);
+    expect(overlapsTypes(d, at(10), at(9), ["sensor"])).toBe(false);
+  });
+});
+
+describe("rawTile — tiling one machine's raw active intervals into active/gap", () => {
+  it("fills the whole day when there is no activity", () => {
+    expect(rawTile([], DAY)).toEqual([{ start: DAY, end: DAY + 24 * H, type: "gap" }]);
+  });
+
+  it("tiles active spans with gaps on either side", () => {
+    const segs = rawTile([{ start: at(9), end: at(12) }], DAY);
+    expect(segs).toEqual([
+      { start: DAY, end: at(9), type: "gap" },
+      { start: at(9), end: at(12), type: "active" },
+      { start: at(12), end: DAY + 24 * H, type: "gap" },
+    ]);
+  });
+
+  it("tiles multiple spans regardless of input order", () => {
+    const segs = rawTile(
+      [
+        { start: at(14), end: at(16) },
+        { start: at(9), end: at(10) },
+      ],
+      DAY,
+    );
+    expect(segs.map((s) => s.type)).toEqual(["gap", "active", "gap", "active", "gap"]);
+    expect(segs[1]).toEqual({ start: at(9), end: at(10), type: "active" });
+    expect(segs[3]).toEqual({ start: at(14), end: at(16), type: "active" });
+  });
+
+  it("produces no gap segment when active spans cover the entire day exactly", () => {
+    const segs = rawTile([{ start: DAY, end: DAY + 24 * H }], DAY);
+    expect(segs).toEqual([{ start: DAY, end: DAY + 24 * H, type: "active" }]);
+  });
+});
+
+describe("markRawProvisional", () => {
+  it("marks only the active tile overlapping a provisional span, leaving others untouched", () => {
+    const segs = rawTile([{ start: at(9), end: at(20) }], DAY);
+    markRawProvisional(segs, [{ start: at(15), end: at(20), growing: true, lastAlive: at(19) }]);
+    const active = segs.find((s) => s.type === "active") as { provisional?: boolean; growing?: boolean };
+    expect(active.provisional).toBe(true);
+    expect((active as { growing?: boolean }).growing).toBe(true);
+  });
+
+  it("leaves gap tiles untouched", () => {
+    const segs = rawTile([{ start: at(9), end: at(10) }], DAY);
+    markRawProvisional(segs, [{ start: at(9), end: at(10), growing: false, lastAlive: at(10) }]);
+    const gaps = segs.filter((s) => s.type === "gap") as { provisional?: boolean }[];
+    expect(gaps.every((g) => g.provisional === undefined)).toBe(true);
   });
 });

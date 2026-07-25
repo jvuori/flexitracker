@@ -125,6 +125,53 @@ describe("pairSpans", () => {
     const closed = pairSpans([ev("m1", 8, "active"), ev("m1", 9, "idle")], at(20), GRACE);
     expect(closed.provisional).toEqual([]);
   });
+
+  describe("byMachine (per-machine raw breakdown)", () => {
+    it("keeps each machine's own intervals independent and sums to the merged result", () => {
+      const { active: merged, byMachine } = pairSpans(
+        [ev("m1", 8, "active"), ev("m1", 10, "idle"), ev("m2", 13, "active"), ev("m2", 14, "idle")],
+        at(20),
+        GRACE,
+      );
+      expect(merged).toEqual([active(8, 0, 10, 0), active(13, 0, 14, 0)]);
+      expect(byMachine.get("m1")!.active).toEqual([active(8, 0, 10, 0)]);
+      expect(byMachine.get("m2")!.active).toEqual([active(13, 0, 14, 0)]);
+    });
+
+    it("does not merge overlapping activity across machines in the per-machine view", () => {
+      // m1 and m2 overlap 09:00-10:00; the merged result unions them into one
+      // span, but each machine's own entry keeps its own, unmerged interval.
+      const { active: merged, byMachine } = pairSpans(
+        [ev("m1", 8, "active"), ev("m1", 10, "idle"), ev("m2", 9, "active"), ev("m2", 12, "idle")],
+        at(20),
+        GRACE,
+      );
+      expect(merged).toEqual([active(8, 0, 12, 0)]);
+      expect(byMachine.get("m1")!.active).toEqual([active(8, 0, 10, 0)]);
+      expect(byMachine.get("m2")!.active).toEqual([active(9, 0, 12, 0)]);
+    });
+
+    it("tracks growing/provisional independently per machine", () => {
+      const { byMachine } = pairSpans(
+        [
+          ev("m1", 8, "active"), // m1 suspends after one heartbeat — bounded, not growing
+          ev("m1", 8, "heartbeat", 30),
+          ev("m2", 11, "active"), // m2 still heartbeating — growing
+          ev("m2", 11, "heartbeat", 59),
+        ],
+        at(12),
+        GRACE,
+      );
+      expect(byMachine.get("m1")!.provisional[0]!.growing).toBe(false);
+      expect(byMachine.get("m2")!.provisional[0]!.growing).toBe(true);
+    });
+
+    it("a machine with no events has no entry", () => {
+      const { byMachine } = pairSpans([ev("m1", 8, "active"), ev("m1", 9, "idle")], at(20), GRACE);
+      expect(byMachine.has("m2")).toBe(false);
+      expect(byMachine.size).toBe(1);
+    });
+  });
 });
 
 describe("computeDay bridging", () => {

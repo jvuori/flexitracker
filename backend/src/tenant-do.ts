@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env";
 import type { EventBatch, EventKind } from "./schema";
 import type { MachineRole } from "./registry";
+import { clamp, duration, type Interval } from "./worktime/interval";
 import { withDefaults, normalizeSettingsPatch } from "./worktime/settings";
 import type { Settings } from "./worktime/settings";
 import { localDayStart, localWeekStart, addLocalDays, weekdayMon0 } from "./worktime/time";
@@ -14,9 +15,25 @@ import {
   type Correction,
   type CorrectionKind,
   type Ledger,
+  type ProvisionalSpan,
   type RawEvent,
   type WeekResult,
 } from "./worktime/worktime";
+
+/**
+ * One machine's own raw activity for a day — display-only. Never fed back
+ * into `computeDay`/corrections, so machine identity never leaks into the
+ * composed partition (see machine-activity-lanes design.md D2).
+ */
+export interface MachineActivity {
+  machineId: string;
+  label: string | null;
+  active: Interval[];
+  provisional: ProvisionalSpan[];
+}
+
+export type DayWithActivity = WeekResult["days"][number] & { machineActivity: MachineActivity[] };
+export type WeekResultWithActivity = Omit<WeekResult, "days"> & { days: DayWithActivity[] };
 
 /** Raw events are kept for this window (= the edit window); then pruned. */
 const EDIT_WINDOW_DAYS = 120;
@@ -364,16 +381,53 @@ export class TenantDO extends DurableObject<Env> {
     return events.filter((e) => (roles.get(e.machine_id) ?? "work") === ledger);
   }
 
+  /** Labels for a set of machine ids, for the per-machine raw activity lanes.
+   *  Mirrors `machineRoles` — same registry table, same machine_id-only
+   *  lookup, no account_id needed. */
+  private async machineLabels(machineIds: string[]): Promise<Map<string, string | null>> {
+    if (machineIds.length === 0) return new Map();
+    const placeholders = machineIds.map(() => "?").join(",");
+    const rows = await this.env.REGISTRY.prepare(
+      `SELECT machine_id, label FROM machine WHERE machine_id IN (${placeholders})`,
+    )
+      .bind(...machineIds)
+      .all<{ machine_id: string; label: string | null }>();
+    return new Map(rows.results.map((r) => [r.machine_id, r.label]));
+  }
+
   // ---- reads -------------------------------------------------------------
 
-  async getWeek(weekStart: number, ledger: Ledger = "work", checkTime = Date.now()): Promise<WeekResult> {
+  async getWeek(weekStart: number, ledger: Ledger = "work", checkTime = Date.now()): Promise<WeekResultWithActivity> {
     const s = this.getSettings();
     const start = localDayStart(weekStart, s.timezone);
     const end = addLocalDays(start, 7, s.timezone);
     const allEvents = this.loadEvents(start, end);
     const events = await this.filterByLedgerRole(allEvents, ledger);
     const corrections = this.loadCorrections(start, end, ledger);
-    const week = computeWeek(start, events, corrections, s, checkTime, ledger);
+    const week = computeWeek(start, events, corrections, s, checkTime, ledger) as WeekResultWithActivity;
+
+    // Per-machine raw activity, for the raw lanes shown on day-expand — purely
+    // additive, display-only. Recomputed via a second pairSpans pass over the
+    // same (already role-filtered) events rather than threading it through
+    // computeWeek, so composition stays exactly as it was and machine
+    // identity never reaches corrections (design.md D2).
+    const { byMachine } = pairSpans(events, checkTime, graceMs());
+    const labels = await this.machineLabels([...byMachine.keys()]);
+    for (const day of week.days) {
+      const win: Interval = { start: day.dayStart, end: addLocalDays(day.dayStart, 1, s.timezone) };
+      const activity: MachineActivity[] = [];
+      for (const [machineId, ma] of byMachine) {
+        const active: Interval[] = [];
+        for (const iv of ma.active) {
+          const c = clamp(iv, win);
+          if (c && duration(c) >= s.minActiveSec * 1000) active.push(c);
+        }
+        if (active.length === 0) continue;
+        const provisional = ma.provisional.filter((p) => p.start < win.end && p.end > win.start);
+        activity.push({ machineId, label: labels.get(machineId) ?? null, active, provisional });
+      }
+      day.machineActivity = activity;
+    }
 
     // For days whose raw events were pruned but that have a sealed rollup, use
     // the rollup numbers (tiered retention). Pruning is day-scoped, not
@@ -415,7 +469,7 @@ export class TenantDO extends DurableObject<Env> {
   }
 
   /** Week relative to the current one (0 = this week, -1 = last week, …). */
-  weekView(offset: number, ledger: Ledger = "work", now = Date.now()): Promise<WeekResult> {
+  weekView(offset: number, ledger: Ledger = "work", now = Date.now()): Promise<WeekResultWithActivity> {
     const s = this.getSettings();
     const start = addLocalDays(localWeekStart(now, s.timezone), offset * 7, s.timezone);
     return this.getWeek(start, ledger, now);

@@ -176,6 +176,20 @@ This project MUST never incur any charge — not now, not after any trial or 12-
   ticks, and segment `pct()` on the identical `hour/24` scale (verify by measuring
   `getBoundingClientRect` of a seg vs its hour label, not by eye — the drift is
   subtle). This misalignment made a user edit the wrong hour ("can't fill the gap").
+  **The same failure mode recurred across two separate tracks**, not just within
+  one: the per-machine raw lanes (`.mlane .track`) used `grid-template-columns:96px
+  1fr` while the merged lane (`.lane-head`) used `96px 1fr 118px` — both tracks'
+  segments position correctly *within their own* `pct()` scale, but the shared `1fr`
+  column resolved to a different pixel width in each grid, so the same instant
+  landed at different x-offsets across the two tracks, defeating the whole point of
+  stacking them for comparison. Fix: give every track that must visually align with
+  another the *identical* column template (raw lanes now mirror `lane-head`'s
+  `96px 1fr 118px`, including an intentionally-empty trailing column, in both the
+  desktop and the `@media max-width:640px` layouts). Rule of thumb: whenever a new
+  timeline-scale element is added, verify alignment by comparing
+  `getBoundingClientRect().left`/`.width` of its track against an existing track's,
+  not by eye — matching `pct()` math on both sides is necessary but not sufficient
+  if the two tracks don't render at the same width to begin with.
 - **`add_work` silently does nothing on a period you previously `remove_work`'d**
   (looks like "a gap I can't fill") → in `computeDay`, removals were applied last
   and unconditionally beat a later add, and a removed period renders identically

@@ -118,6 +118,14 @@ export interface ProvisionalSpan extends Interval {
 export interface PairedSpans {
   active: Interval[];
   provisional: ProvisionalSpan[];
+  /**
+   * The same pairing, kept separate per machine instead of unioned — for
+   * display only (raw per-machine activity lanes). Composition (`computeDay`)
+   * never reads this; only `active`/`provisional` (the merged result) feed it,
+   * so machine identity never leaks into corrections or the composed
+   * partition.
+   */
+  byMachine: Map<string, { active: Interval[]; provisional: ProvisionalSpan[] }>;
 }
 
 /**
@@ -148,8 +156,11 @@ export function pairSpans(
 
   const all: Interval[] = [];
   const provisional: ProvisionalSpan[] = [];
-  for (const list of byMachine.values()) {
+  const byMachineOut = new Map<string, { active: Interval[]; provisional: ProvisionalSpan[] }>();
+  for (const [machineId, list] of byMachine.entries()) {
     list.sort((a, b) => a.ts - b.ts);
+    const machineActive: Interval[] = [];
+    const machineProvisional: ProvisionalSpan[] = [];
     let open: number | null = null;
     let lastAlive = 0;
     for (const e of list) {
@@ -160,7 +171,10 @@ export function pairSpans(
         lastAlive = Math.max(lastAlive, e.ts);
       } else if (ABSENCE.has(e.kind)) {
         if (open !== null) {
-          if (e.ts > open) all.push({ start: open, end: e.ts });
+          if (e.ts > open) {
+            all.push({ start: open, end: e.ts });
+            machineActive.push({ start: open, end: e.ts });
+          }
           open = null;
         }
       }
@@ -173,11 +187,15 @@ export function pairSpans(
       const end = Math.min(checkTime, bound);
       if (end > open) {
         all.push({ start: open, end });
-        provisional.push({ start: open, end, lastAlive, growing: bound >= checkTime });
+        const span = { start: open, end, lastAlive, growing: bound >= checkTime };
+        provisional.push(span);
+        machineActive.push({ start: open, end });
+        machineProvisional.push(span);
       }
     }
+    byMachineOut.set(machineId, { active: machineActive, provisional: machineProvisional });
   }
-  return { active: mergeIntervals(all), provisional };
+  return { active: mergeIntervals(all), provisional, byMachine: byMachineOut };
 }
 
 function inHours(gap: Interval, tz: string, startMin: number, endMin: number): boolean {

@@ -1,5 +1,5 @@
 import type { Identity } from "../identity";
-import { TIME_HELPERS_SRC } from "./client-helpers";
+import { LANE_HELPERS_SRC, TIME_HELPERS_SRC } from "./client-helpers";
 
 /**
  * Node-free UI: a single self-contained HTML page with inline CSS (responsive,
@@ -185,6 +185,20 @@ main{max-width:900px;margin:0 auto;padding:1rem}
 .hours{position:relative;height:.85rem;margin-top:2px;font-size:.6rem;color:var(--muted)}
 .hours span{position:absolute;transform:translateX(-50%)}
 .hours span:first-child{transform:none}.hours span:last-child{transform:translateX(-100%)}
+/* Raw per-machine lanes: shown on day-expand, always, one per contributing
+   machine — thinner than the main track and never re-rendered from
+   corrections (raw events are immutable). */
+.mlanes{margin:.5rem 0}
+/* Same column template as .lane-head (96px label, 118px trailing column) so
+   the shared 1fr timeline column resolves to the IDENTICAL pixel width and
+   left offset as the merged track above — otherwise the two tracks' percentage
+   positioning (pct()) is each internally consistent but the tracks themselves
+   are different widths, so the same instant lands at different x-positions.
+   The trailing 118px column is reserved but left empty on purpose. */
+.mlane{display:grid;grid-template-columns:96px 1fr 118px;gap:.6rem;align-items:center;margin:.25rem 0}
+.mlabel{font-size:.72rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mlane .track{height:18px;cursor:pointer}
+.mlane .seg{top:2px;height:14px}
 .detail{display:none;margin-top:.6rem;padding-top:.6rem;border-top:1px dashed var(--line2)}
 .lane.open .detail{display:block}
 .legend{display:flex;flex-wrap:wrap;gap:.15rem .8rem;font-size:.75rem;margin:.1rem 0 .6rem}
@@ -218,7 +232,13 @@ main{max-width:900px;margin:0 auto;padding:1rem}
 .adv summary{cursor:pointer;font-size:.85rem;padding:.2rem 0;color:var(--muted)}
 @media (max-width:640px){.summary{grid-template-columns:repeat(2,1fr)}
  .lane-head{grid-template-columns:1fr auto;grid-template-areas:"dl nums" "tl tl";row-gap:.45rem}
- .dl{grid-area:dl}.nums{grid-area:nums}.tl{grid-area:tl}}
+ .dl{grid-area:dl}.nums{grid-area:nums}.tl{grid-area:tl}
+ /* .tl becomes full-width here (no reserved label column), so .mlane must
+    match: label above, track below, full width — same left offset (zero)
+    as the merged track in this layout. */
+ .mlane{grid-template-columns:1fr;grid-template-areas:"mlbl" "mtrk";row-gap:.15rem}
+ .mlane .mlabel{grid-area:mlbl}
+ .mlane .track{grid-area:mtrk}}
 button.act{border:1px solid var(--line);background:none;color:var(--fg);padding:.25rem .5rem;border-radius:5px;cursor:pointer;font-size:.8rem}
 button.act:disabled{opacity:.4;cursor:not-allowed}
 input,select{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:5px;padding:.35rem}
@@ -294,6 +314,7 @@ function el(html){const t=document.createElement('template');t.innerHTML=html.tr
 // which is server-computed.
 function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 ${TIME_HELPERS_SRC}
+${LANE_HELPERS_SRC}
 
 const tabs=document.getElementById('tabs');
 tabs.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
@@ -377,6 +398,17 @@ function canSelect(d,p){
  return p.start!==d.dayStart&&p.end!==dEnd;
 }
 
+// overlapsTypes/rawTile/markRawProvisional come from LANE_HELPERS_SRC above.
+
+// Clear every current selection highlight (merged track, mirrored list, and
+// every raw per-machine lane) before applying a new one — selection sources
+// are mutually exclusive at any moment.
+function clearSelection(lane){
+ selPeriod=null;
+ lane.querySelectorAll('.seg.sel').forEach(s=>s.classList.remove('sel'));
+ lane.querySelectorAll('.prow.sel').forEach(r=>r.classList.remove('sel'));
+}
+
 // One day = one inline lane: label · full 0–24h timeline+ruler · numbers, with
 // an in-place expandable panel. Every period of the day is a selectable object:
 // clicking the timeline selects the period under the pointer; a mirrored period
@@ -418,9 +450,10 @@ function dayLane(d,i,now){
  // a click anywhere on the track maps to the period covering that instant.
  const select=idx=>{
   if(!canSelect(d,d.periods[idx]))return; // midnight-touching idle gaps are inert
+  clearSelection(lane);
   selPeriod={dayStart:d.dayStart,idx};
-  for(const s of lane.querySelectorAll('.seg'))s.classList.toggle('sel',Number(s.dataset.i)===idx);
-  for(const r of lane.querySelectorAll('.prow'))r.classList.toggle('sel',Number(r.dataset.i)===idx);
+  const segEl=track.querySelector('.seg[data-i="'+idx+'"]');if(segEl)segEl.classList.add('sel');
+  const rowEl=lane.querySelector('.prow[data-i="'+idx+'"]');if(rowEl)rowEl.classList.add('sel');
   renderStrip(lane.querySelector('.strip'),d,idx);
  };
  lane.__select=select;
@@ -459,6 +492,35 @@ async function actOn(d,p,act){
  }
  reload();
 }
+// Apply an action for a selection with no correction identity (a raw
+// per-machine segment, or a manually-typed range) — always the plain
+// add_work/remove_work/move primitives, never the manual_added
+// delete-and-recreate special case in actOn: that case is unreachable here
+// because overlapsTypes never offers Move on manual_added-only overlap (see
+// manual-corrections "Action availability for a selection without
+// correction identity"), and a mixed overlap safely moves only its
+// sensor/auto_bridged portion via the ordinary remove_work/add_work pair.
+async function actOnRange(start,end,act){
+ if(act==='count')await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start,end,ledger:ledgerMode})});
+ else if(act==='exclude')await api('/corrections',{method:'POST',body:JSON.stringify({kind:'remove_work',start,end,ledger:ledgerMode})});
+ else if(act==='move')await api('/corrections/move',{method:'POST',body:JSON.stringify({start,end,fromLedger:ledgerMode})});
+ reload();
+}
+// Render the action strip for a selection without correction identity —
+// shared by a raw-lane segment click and the Advanced control.
+function renderRangeStrip(strip,d,start,end,label,prov){
+ strip.innerHTML='';
+ strip.append(el('<span class="si">'+(label?escHtml(label)+' · ':'')+clock(start)+'–'+clock(end)+' · '+hm(end-start)+'</span>'));
+ if(prov){
+  strip.append(el('<span class="prov">no end recorded — last seen '+clock(prov.lastAlive)+'</span>'));
+  if(prov.growing){strip.append(el('<span class="muted">Still in progress — editable once this machine stops reporting.</span>'));return;}
+ }
+ const acts=[];
+ if(overlapsTypes(d,start,end,['gap','review','removed']))acts.push({label:'Count as work',act:'count'});
+ if(overlapsTypes(d,start,end,['sensor','auto_bridged'])){acts.push({label:'Exclude',act:'exclude'});acts.push({label:'Move to other side',act:'move'});}
+ if(!acts.length){strip.append(el('<span class="muted">Nothing to act on here in the '+ledgerMode+' view.</span>'));return;}
+ for(const v of acts){const b=el('<button class="act">'+v.label+'</button>');b.onclick=()=>actOnRange(start,end,v.act);strip.append(b);}
+}
 // Fill the office day: add work over each review/gap period inside the envelope,
 // leaving removed periods (explicit exclusions) untouched. Work-ledger only —
 // the personal ledger never exposes an office envelope to fill.
@@ -489,6 +551,40 @@ function buildDetail(lane,d){
    '<span><i class="swatch removed"></i>excluded (removed)</span>'+
    '<span><i class="swatch gap"></i>idle</span></div>'));
  c.append(el('<div class="strip"></div>'));
+ // Raw per-machine lanes: always shown, one per machine that contributed any
+ // activity that day (even just one machine) — literal sensor activity only,
+ // no bridging, no corrections. Clicking a segment seeds the same strip above
+ // with that segment's own [start,end]; it never changes based on
+ // corrections, since corrections only ever target the merged lane above.
+ const activity=d.machineActivity||[];
+ if(activity.length){
+  const mlanes=el('<div class="mlanes"></div>');
+  const pct=ts=>Math.max(0,Math.min(100,((ts-d.dayStart)/86400000)*100));
+  activity.forEach(ma=>{
+   const segs=markRawProvisional(rawTile(ma.active,d.dayStart),ma.provisional);
+   const row=el('<div class="mlane"><div class="mlabel">'+escHtml(ma.label||'Unnamed machine')+'</div><div class="track"></div></div>');
+   const track=row.querySelector('.track');
+   segs.forEach((s,idx)=>{
+    track.appendChild(el('<div class="seg '+(s.type==='active'?'sensor':'gap')+(s.provisional?' provisional':'')+
+      '" data-i="'+idx+'" style="left:'+pct(s.start)+'%;width:'+(pct(s.end)-pct(s.start))+'%"></div>'));
+   });
+   track.addEventListener('click',e=>{
+    const r=track.getBoundingClientRect();const frac=(e.clientX-r.left)/r.width;
+    const ts=d.dayStart+Math.max(0,Math.min(0.999999,frac))*86400000;
+    const idx=segs.findIndex(s=>s.start<=ts&&s.end>ts);
+    if(idx<0)return;
+    const s=segs[idx];
+    // Same rule as the merged track: a gap touching local midnight is inert.
+    if(s.type==='gap'&&(s.start===d.dayStart||s.end===d.dayStart+86400000))return;
+    clearSelection(lane);
+    track.querySelectorAll('.seg')[idx].classList.add('sel');
+    renderRangeStrip(lane.querySelector('.strip'),d,s.start,s.end,ma.label,
+      s.provisional?{growing:s.growing,lastAlive:s.lastAlive}:null);
+   });
+   mlanes.append(row);
+  });
+  c.append(mlanes);
+ }
  const dayacts=el('<div class="row"></div>');
  // Both day-level actions are work-ledger-only concepts: the office envelope
  // (fill) and the norm (holiday) don't exist in personal mode.
@@ -522,30 +618,36 @@ function buildDetail(lane,d){
   list.append(row);
  });
  c.append(list);
- // Advanced: exact times, for a boundary no existing period offers.
+ // Advanced: exact times, for a boundary no existing period or raw segment offers.
  const adv=el('<details class="adv"><summary class="muted">Advanced: enter exact times</summary>'+
    '<div class="row"><label>From<input type="time" class="cs" value="12:00"></label>'+
    '<label>To<input type="time" class="ce" value="13:00"></label>'+
-   '<button class="act add">Add work</button><button class="act rm">Mark private</button></div></details>');
+   '<button class="act add">Add work</button><button class="act rm">Mark private</button>'+
+   '<button class="act mv">Move to other side</button></div></details>');
  c.append(adv);
  const toTs=inp=>{const[h,m]=inp.value.split(':').map(Number);return d.dayStart+((h*60+m)*60000);};
- const cs=adv.querySelector('.cs'),ce=adv.querySelector('.ce'),addb=adv.querySelector('.add'),rm=adv.querySelector('.rm');
+ const cs=adv.querySelector('.cs'),ce=adv.querySelector('.ce'),addb=adv.querySelector('.add'),rm=adv.querySelector('.rm'),mv=adv.querySelector('.mv');
  // Disable each button when the entered range would be a no-op (also covers an
  // inverted range and an empty day/weekend): "Add work" only adds currently
  // non-work time (a gap, reviewable, or previously-removed period); "Mark
- // private" only removes counted sensor/auto-bridged time (over manual/other it
- // does nothing — add_work wins over remove).
- const overlaps=types=>{const s=toTs(cs),e=toTs(ce);return e>s&&d.periods.some(p=>types.includes(p.type)&&p.end>s&&p.start<e);};
+ // private"/"Move" only act on counted sensor/auto-bridged time — never on
+ // manual_added alone, since a plain remove_work has no effect there (see
+ // manual-corrections "Action availability for a selection without
+ // correction identity"). A mixed range still enables them and only its
+ // sensor/auto-bridged portion is affected.
+ const overlaps=types=>overlapsTypes(d,toTs(cs),toTs(ce),types);
  // A disabled button keeps a title so hovering explains why it is greyed out.
  const sync=()=>{
   const canAdd=overlaps(['gap','review','removed']),canRm=overlaps(['sensor','auto_bridged']);
-  addb.disabled=!canAdd;rm.disabled=!canRm;
+  addb.disabled=!canAdd;rm.disabled=!canRm;mv.disabled=!canRm;
   addb.title=canAdd?'':'Nothing to add in this range — it is already counted as work. Add work only fills a gap, a reviewable break, or a previously removed period.';
   rm.title=canRm?'':'Nothing to remove in this range — it has no counted work. Mark private only excludes measured or auto-bridged time.';
+  mv.title=canRm?'':'Nothing to move in this range — it has no counted work in the current view.';
  };
  cs.addEventListener('input',sync);ce.addEventListener('input',sync);sync();
  addb.onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:toTs(cs),end:toTs(ce),ledger:ledgerMode})});reload();};
  rm.onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'remove_work',start:toTs(cs),end:toTs(ce),ledger:ledgerMode})});reload();};
+ mv.onclick=async()=>{await api('/corrections/move',{method:'POST',body:JSON.stringify({start:toTs(cs),end:toTs(ce),fromLedger:ledgerMode})});reload();};
 }
 
 // Render the contextual action strip for the selected period (or a hint).
