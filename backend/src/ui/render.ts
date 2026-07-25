@@ -159,7 +159,18 @@ main{max-width:900px;margin:0 auto;padding:1rem}
  color:var(--muted);border:1px solid var(--line2);border-radius:4px;vertical-align:middle}
 /* Holiday tag: a filled accent chip, distinct from the outline "off" chip. */
 .offtag.holiday{color:var(--bg);background:var(--accent);border-color:var(--accent)}
-.nums .report{display:block;font-size:.72rem;color:var(--muted)}
+/* The reportable value is the OUTPUT of a day's verification pass — the number
+   that gets typed into the employer's system — so it sits as a peer of the
+   balance, not below it. Colour encodes which QUANTITY a figure is, and size
+   encodes importance: this and the exact time are the same quantity (this day's
+   worked time) in two forms, so they share --fg, while the balance is a
+   different quantity and earns its own signed colour. Not --accent or --sensor:
+   both already mean something specific on the timeline (you asserted this /
+   counted), and borrowing them here would break that encoding. The '~' carries
+   approximation now, so muting it as well only hid the deliverable. */
+.nums .report{display:block;font-size:.8rem;font-weight:600;color:var(--fg)}
+/* The tilde is a qualifier rather than part of the value, so it stays quiet. */
+.nums .report .approx{color:var(--muted);font-weight:400}
 .lane-head{display:grid;grid-template-columns:96px 1fr 118px;gap:.6rem;align-items:center}
 .dl{font-size:.8rem;line-height:1.2;cursor:pointer;user-select:none}
 .dl b{display:block;font-size:.9rem}.dl .date{color:var(--muted)}
@@ -592,7 +603,7 @@ function dayLane(d,i,now){
  // to the receipt, where it sits between gross and worked as the step it is.
  const nums=isWork
    ?('<span class="worked">'+hm(d.workedMs)+'</span>'+
-     (d.workedMs>0?'<span class="report" title="'+dec30(d.workedMs)+' hours — the value to report" aria-label="'+dec30(d.workedMs)+' hours to report">~'+dec30(d.workedMs)+'h</span>':'')+
+     (d.workedMs>0?'<span class="report" title="'+dec30(d.workedMs)+' hours — the value to report" aria-label="'+dec30(d.workedMs)+' hours to report"><span class="approx">~</span>'+dec30(d.workedMs)+'h</span>':'')+
      '<span class="bal '+balCls+'">'+balTxt+'</span>')
    :'<span class="worked">'+hm(d.workedMs)+'</span>';
  const lane=el('<div class="lane'+(isToday?' today':'')+(zeroNorm?' off':'')+(isWork&&d.isHoliday?' holiday':'')+(d.dayStart===openDay?' open':'')+'">'+
