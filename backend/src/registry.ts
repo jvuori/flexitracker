@@ -36,6 +36,10 @@ export interface MachineKey {
   revoked_at: number | null;
 }
 
+/** Whether a Machine's activity counts toward flextime balance (`work`) or is
+ *  tracked for personal awareness only, never touching balance (`personal`). */
+export type MachineRole = "work" | "personal";
+
 /**
  * A durable Machine: `machine_id` is stable across key rotations and hardware
  * replacements, distinct from the (rotatable, revocable) key that currently
@@ -45,6 +49,7 @@ export interface Machine {
   machine_id: string;
   account_id: string;
   label: string;
+  role: MachineRole;
   created_at: number;
 }
 
@@ -77,6 +82,7 @@ CREATE TABLE IF NOT EXISTS machine (
   machine_id TEXT PRIMARY KEY,
   account_id TEXT NOT NULL,
   label      TEXT NOT NULL,
+  role       TEXT NOT NULL DEFAULT 'work' CHECK(role IN ('work','personal')),
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS machine_account_label ON machine (account_id, label);
@@ -136,6 +142,8 @@ export async function ensureRegistrySchema(db: D1Database): Promise<void> {
     await db.prepare(stmt).run();
   }
   await migrateAccountStatus(db);
+  await migrateMachineRole(db);
+  await backfillKeylessMachines(db);
 }
 
 /**
@@ -154,6 +162,40 @@ async function migrateAccountStatus(db: D1Database): Promise<void> {
   await db.prepare("ALTER TABLE account ADD COLUMN decided_at INTEGER").run();
   await db.prepare("ALTER TABLE account ADD COLUMN decided_by TEXT").run();
   await db.prepare("UPDATE account SET status = 'active' WHERE status = 'pending'").run();
+}
+
+/**
+ * Add `role` to a pre-existing `machine` table (SQLite has no ADD COLUMN IF NOT
+ * EXISTS). Runs once: every pre-existing Machine grandfathers to `work` — the
+ * common case, and the one that changes nothing about an account's balance
+ * until a human explicitly reclassifies a machine as personal.
+ */
+async function migrateMachineRole(db: D1Database): Promise<void> {
+  const cols = await db.prepare("PRAGMA table_info(machine)").all<{ name: string }>();
+  if (cols.results.some((c) => c.name === "role")) return;
+  await db
+    .prepare("ALTER TABLE machine ADD COLUMN role TEXT NOT NULL DEFAULT 'work'")
+    .run();
+}
+
+/**
+ * Backfill a `machine` row (role `work`, matching the frozen default at the
+ * time this migration was introduced) for every `machine_key` that predates
+ * the Machine entity — closing the legacy gap where a key could exist with no
+ * backing Machine row at all (see `findMachine`'s legacy fallback). Idempotent
+ * and cheap once caught up: the `NOT EXISTS` guard matches nothing on
+ * subsequent runs.
+ */
+async function backfillKeylessMachines(db: D1Database): Promise<void> {
+  await db
+    .prepare(
+      `INSERT OR IGNORE INTO machine (machine_id, account_id, label, role, created_at)
+       SELECT mk.machine_id, mk.account_id, COALESCE(MIN(mk.label), ''), 'work', MIN(mk.created_at)
+         FROM machine_key mk
+        WHERE NOT EXISTS (SELECT 1 FROM machine m WHERE m.machine_id = mk.machine_id)
+        GROUP BY mk.machine_id, mk.account_id`,
+    )
+    .run();
 }
 
 /** URL-safe random token. */
@@ -333,22 +375,35 @@ export async function listAccountsWithStats(db: D1Database): Promise<AccountWith
   return res.results;
 }
 
-/** Return an existing non-revoked key for (account,label) or issue a new one. */
+/** Return an existing non-revoked key for (account,label) or issue a new one,
+ *  backed by a proper Machine entity either way. */
 export async function ensureKey(
   db: D1Database,
   accountId: string,
   label: string,
+  role: MachineRole = "work",
 ): Promise<MachineKey> {
   const existing = (await listKeys(db, accountId)).find(
     (k) => k.label === label && k.revoked_at === null,
   );
-  return existing ?? issueKey(db, accountId, label);
+  if (existing) {
+    await setMachineRole(db, accountId, existing.machine_id, role);
+    return existing;
+  }
+  const machine = await createMachine(db, accountId, label, role);
+  return issueKeyForMachine(db, accountId, machine.machine_id, label);
 }
 
 /** Wipe the entire global registry (QA reset). Durable Object data is cleared
  *  separately per account via TenantDO.reset(). */
 export async function wipeRegistry(db: D1Database): Promise<void> {
   await db.prepare("DELETE FROM machine_key").run();
+  // `machine` was missed here before every key was guaranteed a backing
+  // Machine row — harmless while `machine` rows were rare, but once
+  // `createMachine` runs on every bootstrap this would accumulate stale rows
+  // (and stale roles) across repeated wipes/loads, defeating "wipes ALL data".
+  await db.prepare("DELETE FROM machine").run();
+  await db.prepare("DELETE FROM device_auth").run();
   await db.prepare("DELETE FROM admin_audit").run();
   await db.prepare("DELETE FROM account").run();
 }
@@ -419,18 +474,30 @@ export async function findMachine(
     .bind(accountId, label)
     .first<{ machine_id: string; account_id: string; label: string | null; created_at: number }>();
   if (!legacy) return null;
-  return { machine_id: legacy.machine_id, account_id: legacy.account_id, label, created_at: legacy.created_at };
+  // A pre-backfill legacy key with no `machine` row yet: role defaults to
+  // `work`, matching `backfillKeylessMachines` — this branch should be
+  // unreachable once that migration has run, kept only as a defensive no-op.
+  return {
+    machine_id: legacy.machine_id,
+    account_id: legacy.account_id,
+    label,
+    role: "work",
+    created_at: legacy.created_at,
+  };
 }
 
 /**
  * Resolve a label to its existing Machine, or create one. Label resolution is
  * how a replacement laptop keeps the same logical Machine ("Work laptop") so
- * its event stream and history continue under one `machine_id`.
+ * its event stream and history continue under one `machine_id`. `role` is
+ * used only when a new Machine is actually created — an existing Machine's
+ * role is never re-asked or overwritten by re-registration.
  */
 export async function resolveOrCreateMachine(
   db: D1Database,
   accountId: string,
   label: string,
+  role: MachineRole = "work",
 ): Promise<Machine> {
   const existing = await findMachine(db, accountId, label);
   if (existing) {
@@ -438,26 +505,36 @@ export async function resolveOrCreateMachine(
     // hit it directly; idempotent (INSERT OR IGNORE) and harmless if the row
     // was created by a concurrent resolve or already existed.
     await db
-      .prepare("INSERT OR IGNORE INTO machine (machine_id, account_id, label, created_at) VALUES (?, ?, ?, ?)")
-      .bind(existing.machine_id, accountId, label, existing.created_at)
+      .prepare(
+        "INSERT OR IGNORE INTO machine (machine_id, account_id, label, role, created_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .bind(existing.machine_id, accountId, label, existing.role, existing.created_at)
       .run();
     return existing;
   }
-  return createMachine(db, accountId, label);
+  return createMachine(db, accountId, label, role);
 }
 
 /** Always create a fresh Machine, even if the label matches an existing one
- *  (the explicit "create a separate machine" choice). */
-export async function createMachine(db: D1Database, accountId: string, label: string): Promise<Machine> {
+ *  (the explicit "create a separate machine" choice). Role defaults to `work`
+ *  — the common case — and is otherwise whatever the creation surface's
+ *  (pre-selected, changeable) radio chose. */
+export async function createMachine(
+  db: D1Database,
+  accountId: string,
+  label: string,
+  role: MachineRole = "work",
+): Promise<Machine> {
   const machine: Machine = {
     machine_id: crypto.randomUUID(),
     account_id: accountId,
     label,
+    role,
     created_at: Date.now(),
   };
   await db
-    .prepare("INSERT INTO machine (machine_id, account_id, label, created_at) VALUES (?, ?, ?, ?)")
-    .bind(machine.machine_id, machine.account_id, machine.label, machine.created_at)
+    .prepare("INSERT INTO machine (machine_id, account_id, label, role, created_at) VALUES (?, ?, ?, ?, ?)")
+    .bind(machine.machine_id, machine.account_id, machine.label, machine.role, machine.created_at)
     .run();
   return machine;
 }
@@ -512,6 +589,40 @@ export async function renameMachine(
   return true;
 }
 
+/**
+ * Change a Machine's role. Works for a Machine that predates this entity too
+ * (a legacy key with no `machine` row) by backfilling one, mirroring
+ * `renameMachine`. Returns false if the machine_id is unknown or belongs to
+ * another account.
+ */
+export async function setMachineRole(
+  db: D1Database,
+  accountId: string,
+  machineId: string,
+  role: MachineRole,
+): Promise<boolean> {
+  if (!(await machineIsAccessibleTo(db, accountId, machineId))) return false;
+  const existing = await db
+    .prepare("SELECT label FROM machine WHERE machine_id = ?")
+    .bind(machineId)
+    .first<{ label: string }>();
+  if (existing) {
+    await db.prepare("UPDATE machine SET role = ? WHERE machine_id = ?").bind(role, machineId).run();
+    return true;
+  }
+  const legacyKey = await db
+    .prepare(
+      "SELECT label FROM machine_key WHERE account_id = ? AND machine_id = ? ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(accountId, machineId)
+    .first<{ label: string | null }>();
+  await db
+    .prepare("INSERT INTO machine (machine_id, account_id, label, role, created_at) VALUES (?, ?, ?, ?, ?)")
+    .bind(machineId, accountId, legacyKey?.label ?? "", role, Date.now())
+    .run();
+  return true;
+}
+
 /** The Machine's current non-revoked key, or null if it has none. */
 export async function activeKeyForMachine(
   db: D1Database,
@@ -528,10 +639,11 @@ export async function activeKeyForMachine(
 }
 
 /**
- * Issue a new key bound to an EXISTING Machine's `machine_id` (distinct from
- * `issueKey`, which mints a fresh `machine_id` per key). Revokes the Machine's
- * prior key in the same batch — at most one active key per Machine, so two
- * daemons can never write interleaved events under one `machine_id`.
+ * Issue a new key bound to an EXISTING Machine's `machine_id` — always paired
+ * with a prior `createMachine`/`resolveOrCreateMachine` call, so a key never
+ * exists without a backing Machine row. Revokes the Machine's prior key in the
+ * same batch — at most one active key per Machine, so two daemons can never
+ * write interleaved events under one `machine_id`.
  */
 export async function issueKeyForMachine(
   db: D1Database,
@@ -608,29 +720,6 @@ export async function redeemDeviceAuthCode(
   if (!row || row.redeemed_at !== null) return null;
   await db.prepare("UPDATE device_auth SET redeemed_at = ? WHERE code = ?").bind(now, code).run();
   return { access_key: row.access_key, machine_id: row.machine_id, account_id: row.account_id };
-}
-
-/** Issue a fresh per-machine key. Returns the key + generated machine_id. */
-export async function issueKey(
-  db: D1Database,
-  accountId: string,
-  label: string | null,
-): Promise<MachineKey> {
-  const key: MachineKey = {
-    access_key: token(),
-    account_id: accountId,
-    machine_id: crypto.randomUUID(),
-    label,
-    created_at: Date.now(),
-    revoked_at: null,
-  };
-  await db
-    .prepare(
-      "INSERT INTO machine_key (access_key, account_id, machine_id, label, created_at) VALUES (?, ?, ?, ?, ?)",
-    )
-    .bind(key.access_key, key.account_id, key.machine_id, key.label, key.created_at)
-    .run();
-  return key;
 }
 
 /** Revoke a key, scoped to the owning account (no cross-account revocation). */

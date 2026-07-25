@@ -7,7 +7,9 @@
 // 2250m, lunch 30m when a day exceeds 360m, private-leave threshold 2h,
 // working days Mon–Fri, timezone UTC.
 
-export const MACHINES = ["Laptop", "Desktop"];
+// Index 2 ("Personal laptop") is registered with role `personal` by
+// /test/bootstrap — its activity must never reach the work ledger.
+export const MACHINES = ["Laptop", "Desktop", "Personal laptop"];
 
 // wd: 0=Mon..6=Sun. m: machine index. s/e: [hour, minute].
 // ed (optional): end weekday, for a single effort that runs past midnight — the
@@ -68,6 +70,32 @@ export const WEEKS = [
         corrections: [],
         // 232m gross, ≤ 360 so no lunch.
         expect: { worked: 232, balance: -218, reviewable: 0 },
+      },
+      {
+        wd: 5,
+        label: "personal-machine activity — tracked, never touches the work ledger",
+        blocks: [{ m: 2, s: [10, 0], e: [12, 30] }],
+        corrections: [],
+        // Work ledger: a personal-role machine's activity contributes nothing —
+        // Saturday is also a non-working day, so worked/balance are both 0.
+        expect: { worked: 0, balance: 0, reviewable: 0 },
+        // Personal ledger: the same 150m (10:00–12:30) counts as plain activity,
+        // with no bridging/lunch/norm concept to apply.
+        expectPersonal: { worked: 150 },
+      },
+      {
+        wd: 6,
+        label: "work-machine session moved to personal via the move action",
+        blocks: [{ m: 0, s: [9, 0], e: [10, 0] }],
+        corrections: [],
+        // "Move to other side": exclude 09:00–10:00 from work, include it in
+        // personal — the same paired remove_work/add_work the web UI's Move
+        // button uses (backend/src/index.ts POST /corrections/move).
+        moves: [{ s: [9, 0], e: [10, 0], fromLedger: "work" }],
+        // Work ledger: the block existed but was moved out, so it counts nothing.
+        expect: { worked: 0, balance: 0, reviewable: 0 },
+        // Personal ledger: the moved 60m counts there instead.
+        expectPersonal: { worked: 60 },
       },
     ],
   },

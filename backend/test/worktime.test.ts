@@ -440,6 +440,139 @@ describe("non-working days credit only", () => {
   });
 });
 
+describe("personal-ledger computeDay", () => {
+  it("does not bridge a short in-hours gap (no office-hours concept)", () => {
+    const d = computeDay(
+      [active(8, 0, 10, 0), active(10, 20, 12, 0)],
+      [],
+      day,
+      S,
+      0,
+      [],
+      "personal",
+    );
+    // Work mode would bridge the 20-minute gap; personal mode leaves it a gap.
+    expect(d.grossMs).toBe(4 * H - 20 * MIN);
+    expect(provMs(d.spans, "auto_bridged")).toBe(0);
+    expect(d.reviewableGaps).toHaveLength(0);
+  });
+
+  it("does not exclude a long in-hours gap as reviewable either — it is just a gap", () => {
+    const d = computeDay(
+      [active(8, 0, 10, 0), active(13, 0, 16, 0)],
+      [],
+      day,
+      S,
+      0,
+      [],
+      "personal",
+    );
+    expect(d.grossMs).toBe(5 * H);
+    expect(d.reviewableGaps).toHaveLength(0);
+    expect(d.periods.filter((p) => p.type === "review")).toHaveLength(0);
+  });
+
+  it("applies no lunch deduction regardless of day length", () => {
+    const d = computeDay([active(8, 0, 18, 0)], [], day, S, 0, [], "personal"); // 10h
+    expect(d.lunchMs).toBe(0);
+    expect(d.workedMs).toBe(d.grossMs);
+  });
+
+  it("has no norm or balance beyond raw worked time, on a working or non-working day alike", () => {
+    const monday = computeDay([active(9, 0, 12, 0)], [], day, S, 0, [], "personal"); // Monday, working weekday
+    const saturday = computeDay([active(9, 0, 12, 0)], [], day, S, 5, [], "personal"); // Saturday
+    expect(monday.normMs).toBe(0);
+    expect(saturday.normMs).toBe(0);
+    expect(monday.balanceMs).toBe(3 * H);
+    expect(saturday.balanceMs).toBe(3 * H);
+  });
+
+  it("exposes no office envelope and no holiday flag", () => {
+    const hol: Correction = { kind: "holiday", start: day, end: day + 24 * H };
+    const d = computeDay([active(7, 0, 17, 0)], [hol], day, S, 0, [], "personal");
+    expect(d.officeEnvelope).toBeNull();
+    expect(d.isHoliday).toBe(false); // holiday corrections are a work-ledger concept
+  });
+
+  it("add_work and remove_work still work as plain include/exclude", () => {
+    const add: Correction = { kind: "add_work", start: at(20), end: at(21) };
+    const withAdd = computeDay([], [add], day, S, 0, [], "personal");
+    expect(withAdd.grossMs).toBe(1 * H);
+    expect(provMs(withAdd.spans, "manual_added")).toBe(1 * H);
+
+    const rm: Correction = { kind: "remove_work", start: at(9), end: at(10) };
+    const withRemove = computeDay([active(9, 0, 12, 0)], [rm], day, S, 0, [], "personal");
+    expect(withRemove.grossMs).toBe(2 * H);
+  });
+});
+
+describe("personal-ledger computeWeek", () => {
+  it("sums plain activity across the week with no weekly norm", () => {
+    const events: RawEvent[] = [
+      { machine_id: "personal-laptop", ts: at(20), kind: "active" },
+      { machine_id: "personal-laptop", ts: at(22), kind: "idle" },
+    ];
+    const w = computeWeek(day, events, [], S, at(23), "personal");
+    expect(w.days[0]!.workedMs).toBe(2 * H);
+    expect(w.weeklyNormMs).toBe(0);
+    expect(w.weeklyWorkedMs).toBe(2 * H);
+    expect(w.weeklyBalanceMs).toBe(2 * H);
+  });
+});
+
+describe("role-filtered input (simulating the tenant-do.ts caller)", () => {
+  // worktime.ts itself has no notion of machine role — the caller filters
+  // RawEvent[] by role before calling computeWeek, once per ledger. These
+  // tests exercise that contract at the pairSpans/computeWeek boundary.
+  it("work and personal ledgers compute independently from disjoint machine sets", () => {
+    const allEvents: RawEvent[] = [
+      { machine_id: "work-laptop", ts: at(9), kind: "active" },
+      { machine_id: "work-laptop", ts: at(12), kind: "idle" },
+      { machine_id: "music-pc", ts: at(20), kind: "active" },
+      { machine_id: "music-pc", ts: at(22), kind: "idle" },
+    ];
+    const workEvents = allEvents.filter((e) => e.machine_id === "work-laptop");
+    const personalEvents = allEvents.filter((e) => e.machine_id === "music-pc");
+
+    const workWeek = computeWeek(day, workEvents, [], S, at(23), "work");
+    const personalWeek = computeWeek(day, personalEvents, [], S, at(23), "personal");
+
+    expect(workWeek.days[0]!.grossMs).toBe(3 * H); // 09:00-12:00 only
+    expect(personalWeek.days[0]!.workedMs).toBe(2 * H); // 20:00-22:00 only, no lunch/norm
+    expect(workWeek.weeklyNormMs).toBeGreaterThan(0);
+    expect(personalWeek.weeklyNormMs).toBe(0);
+  });
+
+  it("simultaneous work and personal machine activity is not unioned across ledgers", () => {
+    const allEvents: RawEvent[] = [
+      { machine_id: "work-laptop", ts: at(9), kind: "active" },
+      { machine_id: "work-laptop", ts: at(11), kind: "idle" },
+      { machine_id: "personal-laptop", ts: at(9, 30), kind: "active" }, // overlaps
+      { machine_id: "personal-laptop", ts: at(10, 30), kind: "idle" },
+    ];
+    const workWeek = computeWeek(
+      day,
+      allEvents.filter((e) => e.machine_id === "work-laptop"),
+      [],
+      S,
+      at(23),
+      "work",
+    );
+    const personalWeek = computeWeek(
+      day,
+      allEvents.filter((e) => e.machine_id === "personal-laptop"),
+      [],
+      S,
+      at(23),
+      "personal",
+    );
+    // Each ledger sees only its own machine's activity — no merging, no
+    // suppression from the other machine's overlapping window.
+    expect(workWeek.days[0]!.grossMs).toBe(2 * H); // 09:00-11:00
+    expect(personalWeek.days[0]!.workedMs).toBe(1 * H); // 09:30-10:30
+  });
+});
+
 describe("holiday days", () => {
   const DAY = 24 * H;
   const hol = (dayStart: number, id = 1): Correction => ({

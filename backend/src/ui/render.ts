@@ -81,15 +81,25 @@ export function renderDeviceApproval(
     `<input type="hidden" name="${name}" value="${escHtml(value)}">`;
   const fields =
     hidden("label", label) + hidden("cb", cb) + hidden("state", state) + hidden("machine_id", machineId ?? "");
+  // Pre-selected to "work" (the common case), changeable before the user
+  // commits. Only takes effect when a Machine is actually created — ignored
+  // when "Replace it" reuses an existing Machine's own role.
+  const roleFields = `
+       <fieldset class="role">
+         <legend>Machine type</legend>
+         <label><input type="radio" name="role" value="work" checked> Work</label>
+         <label><input type="radio" name="role" value="personal"> Personal</label>
+       </fieldset>`;
   const body = conflict
     ? `<p>A machine named <b>${escHtml(label)}</b> is already active — last seen ${escHtml(new Date(conflict.lastSeen).toLocaleString())}.</p>
        <p class="muted">Replace it (its daemon will stop being accepted) or create a separate machine instead.</p>
-       <form method="post" action="/device/authorize">${fields}
+       <form method="post" action="/device/authorize">${fields}${roleFields}
+         <p class="muted">Machine type only applies if you create a separate machine — replacing keeps the existing machine's type.</p>
          <button class="act" name="decision" value="replace">Replace it</button>
          <button class="act" name="decision" value="separate">Create a separate machine</button>
        </form>`
     : `<p>Authorize a machine named <b>${escHtml(label)}</b> to send activity data to your account.</p>
-       <form method="post" action="/device/authorize">${fields}
+       <form method="post" action="/device/authorize">${fields}${roleFields}
          <button class="act" name="decision" value="approve">Approve</button>
        </form>`;
   return devicePage("Authorize machine", body);
@@ -243,6 +253,12 @@ table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:.35rem;b
 .badge.active{color:var(--bg);background:var(--pos);border-color:var(--pos)}
 .badge.pending{color:var(--bg);background:var(--review);border-color:var(--review)}
 .badge.rejected,.badge.disabled{color:var(--bg);background:var(--neg);border-color:var(--neg)}
+.modetoggle{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.modetoggle button{border:none;border-radius:0;background:none;color:var(--fg);padding:.35rem .75rem;cursor:pointer;font-size:.85rem}
+.modetoggle button.active{background:var(--sensor);color:#fff}
+fieldset.role{border:1px solid var(--line);border-radius:6px;padding:.4rem .6rem;margin:.4rem 0}
+fieldset.role legend{font-size:.75rem;color:var(--muted);padding:0 .3rem}
+fieldset.role label{display:inline-flex;align-items:center;gap:.3rem;margin:0 .8rem 0 0;font-size:.85rem}
 `;
 
 // The client is defined as a plain string so the page stays node-free.
@@ -284,8 +300,11 @@ tabs.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)retur
  for(const x of tabs.children)x.classList.toggle('active',x===b);TABS[b.dataset.tab]();});
 
 let weekOffset=0;
+// Which ledger the week view shows — persists across week navigation within
+// the session (like weekOffset), resets on a full page reload.
+let ledgerMode='work';
 const TABS={
- async week(){view.textContent='Loading…';const [st,s,wk]=await Promise.all([api('/status'),api('/settings'),api('/week?offset='+weekOffset)]);
+ async week(){view.textContent='Loading…';const [st,s,wk]=await Promise.all([api('/status'),api('/settings'),api('/week?offset='+weekOffset+'&ledger='+ledgerMode)]);
   TZ=s.timezone;renderWeek(st,wk);},
  async settings(){renderSettings(await api('/settings'));},
  async machines(){renderMachines(await api('/machines'));},
@@ -303,32 +322,50 @@ function renderWeek(st,wk){
    st.state==='idle'?('⚪ idle since '+clock(st.since)):'— no data';
  view.append(el('<div class="card"><div class="row"><div>'+status+'</div>'+
    '<div class="muted">week of '+dayFmt(wk.weekStart)+'</div></div></div>'));
+ const mode=el('<div class="row"><div class="modetoggle">'+
+   '<button class="'+(ledgerMode==='work'?'active':'')+'" data-m="work">Work</button>'+
+   '<button class="'+(ledgerMode==='personal'?'active':'')+'" data-m="personal">Personal</button>'+
+   '</div></div>');
+ mode.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+  if(ledgerMode===b.dataset.m)return;
+  ledgerMode=b.dataset.m;openDay=null;selPeriod=null;TABS.week();
+ });
+ view.append(mode);
  const endTs=wk.days[wk.days.length-1].dayStart;
  const nav=el('<div class="row"><button class="act" id="prev">← prev</button>'+
    '<div class="big">'+dayFmt(wk.weekStart)+' – '+dayFmt(endTs)+'</div>'+
    '<button class="act" id="next">next →</button></div>');
  view.append(nav);
- const lunchMs=wk.days.reduce((n,d)=>n+d.lunchMs,0);
- view.append(el('<div class="summary">'+
-   stat('Worked',hm(wk.weeklyWorkedMs))+
-   stat('Weekly norm',hm(wk.weeklyNormMs))+
-   stat('Lunch',hm(lunchMs))+
-   stat('Balance',bal(wk.weeklyBalanceMs),wk.weeklyBalanceMs>=0?'pos':'neg')+'</div>'));
+ // Work mode shows the full norm/lunch/balance summary; personal mode is
+ // plain activity only — none of those concepts apply outside the work ledger.
+ if(ledgerMode==='work'){
+  const lunchMs=wk.days.reduce((n,d)=>n+d.lunchMs,0);
+  view.append(el('<div class="summary">'+
+    stat('Worked',hm(wk.weeklyWorkedMs))+
+    stat('Weekly norm',hm(wk.weeklyNormMs))+
+    stat('Lunch',hm(lunchMs))+
+    stat('Balance',bal(wk.weeklyBalanceMs),wk.weeklyBalanceMs>=0?'pos':'neg')+'</div>'));
+ }else{
+  view.append(el('<div class="summary">'+stat('Activity',hm(wk.weeklyWorkedMs))+'</div>'));
+ }
  const now=Date.now();
  wk.days.forEach((d,i)=>view.append(dayLane(d,i,now)));
  document.getElementById('prev').onclick=()=>{weekOffset--;openDay=null;TABS.week();};
  document.getElementById('next').onclick=()=>{weekOffset++;openDay=null;TABS.week();};
 }
 
-// Human labels and the single state-appropriate verb for each period type.
+// Human labels and the state-appropriate action(s) for each period type. A
+// counting period (sensor/auto_bridged/manual_added) offers Move to other
+// side alongside its primary action — moving reclassifies already-counted
+// time between ledgers regardless of provenance.
 const TYPELABEL={sensor:'measured',auto_bridged:'auto-bridged',manual_added:'added by you',
  review:'excluded (review)',removed:'excluded (removed)',gap:'idle / no activity'};
-function verbFor(t){
- if(t==='sensor'||t==='auto_bridged')return{label:'Exclude as private',act:'exclude'};
- if(t==='review'||t==='gap')return{label:'Count as work',act:'count'};
- if(t==='manual_added')return{label:'Undo addition',act:'undo'};
- if(t==='removed')return{label:'Restore as work',act:'restore'};
- return null;
+function actionsFor(t){
+ if(t==='sensor'||t==='auto_bridged')return[{label:'Exclude',act:'exclude'},{label:'Move to other side',act:'move'}];
+ if(t==='review'||t==='gap')return[{label:'Count as work',act:'count'}];
+ if(t==='manual_added')return[{label:'Undo addition',act:'undo'},{label:'Move to other side',act:'move'}];
+ if(t==='removed')return[{label:'Restore as work',act:'restore'}];
+ return[];
 }
 // A plain idle gap that runs from or to local midnight (e.g. an overnight
 // 00:00–08:00 stretch, or evening idle ending at 24:00) is almost never work, so
@@ -353,20 +390,26 @@ function dayLane(d,i,now){
  // and its extent moves as evidence arrives.
  d.periods.forEach((p,idx)=>{bars+='<div class="seg '+p.type+(p.provisional?' provisional':'')+'" data-i="'+idx+'" style="left:'+pct(p.start)+'%;width:'+(pct(p.end)-pct(p.start))+'%"></div>';});
  let hrs='';for(let h=0;h<=24;h++)hrs+='<span style="left:'+(h/24*100)+'%">'+h+'</span>';
- const balCls=d.balanceMs>=0?'pos':'neg';
  const isToday=now>=d.dayStart&&now<d.dayStart+DAY;
+ const isWork=ledgerMode==='work';
  // Zero-norm days (weekends and holidays) recede (see .lane.off) and credit only:
  // signed balance (bal) when there's a credit, a neutral placeholder when zero.
- const zeroNorm=!d.isWorkingDay||d.isHoliday;
+ // Personal mode has no norm at all, so no day ever gets this treatment — every
+ // day is styled the same regardless of weekday.
+ const zeroNorm=isWork&&(!d.isWorkingDay||d.isHoliday);
+ const balCls=d.balanceMs>=0?'pos':'neg';
  const balTxt=(!zeroNorm||d.balanceMs!==0)?bal(d.balanceMs):'—';
- const tag=d.isHoliday?'<span class="offtag holiday">holiday</span>':(d.isWorkingDay?'':'<span class="offtag">off</span>');
- const lane=el('<div class="lane'+(isToday?' today':'')+(zeroNorm?' off':'')+(d.isHoliday?' holiday':'')+(d.dayStart===openDay?' open':'')+'">'+
+ const tag=!isWork?'':d.isHoliday?'<span class="offtag holiday">holiday</span>':(d.isWorkingDay?'':'<span class="offtag">off</span>');
+ const nums=isWork
+   ?('<span class="worked">'+hm(round30(d.workedMs))+'</span>'+
+     (d.lunchMs>0?'<span class="lunch">Lunch '+hm(d.lunchMs)+'</span>':'')+
+     '<span class="bal '+balCls+'">'+balTxt+'</span>')
+   :'<span class="worked">'+hm(round30(d.workedMs))+'</span>';
+ const lane=el('<div class="lane'+(isToday?' today':'')+(zeroNorm?' off':'')+(isWork&&d.isHoliday?' holiday':'')+(d.dayStart===openDay?' open':'')+'">'+
    '<div class="lane-head">'+
    '<div class="dl"><b><span class="chev">▶</span>'+DAYNAMES[i]+'</b><span class="date">'+dayFmt(d.dayStart)+tag+'</span></div>'+
    '<div class="tl"><div class="track">'+bars+'</div><div class="hours">'+hrs+'</div></div>'+
-   '<div class="nums"><span class="worked">'+hm(round30(d.workedMs))+'</span>'+
-     (d.lunchMs>0?'<span class="lunch">Lunch '+hm(d.lunchMs)+'</span>':'')+
-     '<span class="bal '+balCls+'">'+balTxt+'</span></div>'+
+   '<div class="nums">'+nums+'</div>'+
    '</div><div class="detail"></div></div>');
  buildDetail(lane,d);
  const track=lane.querySelector('.track');
@@ -394,25 +437,37 @@ function dayLane(d,i,now){
  return lane;
 }
 
-// Apply the action for the selected period, then re-render the week.
-async function actOn(d,p){
+// Apply one action for the selected period, then re-render the week.
+async function actOn(d,p,act){
  // Refuse a still-growing period here too, not only in the strip: its boundaries
  // are still advancing, so a correction built from them is already stale.
  if(p.provisional&&p.growing)return;
- const v=verbFor(p.type);if(!v)return;
- if(v.act==='count')await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:p.start,end:p.end})});
- else if(v.act==='exclude')await api('/corrections',{method:'POST',body:JSON.stringify({kind:'remove_work',start:p.start,end:p.end})});
- else for(const id of (p.correctionIds||[]))await api('/corrections/'+id,{method:'DELETE'});
+ if(act==='count')await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:p.start,end:p.end,ledger:ledgerMode})});
+ else if(act==='exclude')await api('/corrections',{method:'POST',body:JSON.stringify({kind:'remove_work',start:p.start,end:p.end,ledger:ledgerMode})});
+ else if(act==='undo'||act==='restore')for(const id of (p.correctionIds||[]))await api('/corrections/'+id,{method:'DELETE'});
+ else if(act==='move'){
+  if(p.type==='manual_added'){
+   // A manual addition is already covered by its own add_work — a plain
+   // remove_work here would lose to it (add_work always wins), so move it by
+   // deleting the addition and re-adding it on the other ledger instead.
+   for(const id of (p.correctionIds||[]))await api('/corrections/'+id,{method:'DELETE'});
+   const other=ledgerMode==='work'?'personal':'work';
+   await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:p.start,end:p.end,ledger:other})});
+  }else{
+   await api('/corrections/move',{method:'POST',body:JSON.stringify({start:p.start,end:p.end,fromLedger:ledgerMode})});
+  }
+ }
  reload();
 }
 // Fill the office day: add work over each review/gap period inside the envelope,
-// leaving removed periods (explicit exclusions) untouched.
+// leaving removed periods (explicit exclusions) untouched. Work-ledger only —
+// the personal ledger never exposes an office envelope to fill.
 async function fillDay(d){
  const env=d.officeEnvelope;if(!env)return;
  for(const p of d.periods){
   if(p.type!=='review'&&p.type!=='gap')continue;
   const s=Math.max(p.start,env.start),e=Math.min(p.end,env.end);
-  if(e>s)await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:s,end:e})});
+  if(e>s)await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:s,end:e,ledger:'work'})});
  }
  reload();
 }
@@ -421,16 +476,23 @@ async function fillDay(d){
 // fill, a mirrored selectable period list, and an advanced exact-times control.
 function buildDetail(lane,d){
  const c=lane.querySelector('.detail');
- c.append(el('<div class="row"><span class="muted">Total '+hm(d.grossMs)+' · Lunch '+hm(d.lunchMs)+' · Worked '+hm(d.workedMs)+'</span></div>'));
+ const isWork=ledgerMode==='work';
+ c.append(el('<div class="row"><span class="muted">'+
+   (isWork?('Total '+hm(d.grossMs)+' · Lunch '+hm(d.lunchMs)+' · Worked '+hm(d.workedMs)):('Activity '+hm(d.grossMs)))+
+   '</span></div>'));
+ // Personal mode never produces auto_bridged/review periods (no office-hours
+ // concept), so their swatches would just be noise there.
  c.append(el('<div class="legend"><span><i class="swatch" style="background:var(--sensor)"></i>measured</span>'+
-   '<span><i class="swatch auto_bridged"></i>auto-bridged</span>'+
+   (isWork?'<span><i class="swatch auto_bridged"></i>auto-bridged</span>':'')+
    '<span><i class="swatch manual_added"></i>added by you</span>'+
-   '<span><i class="swatch review"></i>excluded (review)</span>'+
+   (isWork?'<span><i class="swatch review"></i>excluded (review)</span>':'')+
    '<span><i class="swatch removed"></i>excluded (removed)</span>'+
    '<span><i class="swatch gap"></i>idle</span></div>'));
  c.append(el('<div class="strip"></div>'));
  const dayacts=el('<div class="row"></div>');
- if(d.officeEnvelope){
+ // Both day-level actions are work-ledger-only concepts: the office envelope
+ // (fill) and the norm (holiday) don't exist in personal mode.
+ if(isWork&&d.officeEnvelope){
   const b=el('<button class="act fillday">Mark whole day as work</button>');
   b.onclick=()=>fillDay(d);
   dayacts.append(b);
@@ -438,7 +500,7 @@ function buildDetail(lane,d){
  // Day-level holiday toggle: a full-day marker that zeroes the norm (credit-only).
  // Only offered on working days — a non-working day is already off, so there is
  // nothing to relieve. (A day already marked can still be cleared, defensively.)
- if(d.isWorkingDay||d.isHoliday){
+ if(isWork&&(d.isWorkingDay||d.isHoliday)){
   const hb=el('<button class="act holiday">'+(d.isHoliday?'Clear holiday':'Mark as holiday')+'</button>');
   hb.onclick=async()=>{
    if(d.isHoliday)for(const id of (d.holidayCorrectionIds||[]))await api('/corrections/'+id,{method:'DELETE'});
@@ -482,8 +544,8 @@ function buildDetail(lane,d){
   rm.title=canRm?'':'Nothing to remove in this range — it has no counted work. Mark private only excludes measured or auto-bridged time.';
  };
  cs.addEventListener('input',sync);ce.addEventListener('input',sync);sync();
- addb.onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:toTs(cs),end:toTs(ce)})});reload();};
- rm.onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'remove_work',start:toTs(cs),end:toTs(ce)})});reload();};
+ addb.onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:toTs(cs),end:toTs(ce),ledger:ledgerMode})});reload();};
+ rm.onclick=async()=>{await api('/corrections',{method:'POST',body:JSON.stringify({kind:'remove_work',start:toTs(cs),end:toTs(ce),ledger:ledgerMode})});reload();};
 }
 
 // Render the contextual action strip for the selected period (or a hint).
@@ -491,7 +553,7 @@ function renderStrip(strip,d,idx){
  strip.innerHTML='';
  const p=d.periods[idx];
  if(!p){strip.append(el('<span class="muted">Tap a period on the timeline to edit it.</span>'));return;}
- const v=verbFor(p.type);
+ const acts=actionsFor(p.type);
  strip.append(el('<span class="si"><span class="pt '+p.type+(p.provisional?' provisional':'')+'"></span>'+clock(p.start)+'–'+clock(p.end)+
    ' · '+hm(p.end-p.start)+' · '+TYPELABEL[p.type]+'</span>'));
  if(p.provisional){
@@ -507,11 +569,11 @@ function renderStrip(strip,d,idx){
   strip.append(el('<span class="muted">Still in progress — editable once this machine stops reporting.</span>'));
   return;
  }
- if(v){const b=el('<button class="act">'+v.label+'</button>');b.onclick=()=>actOn(d,p);strip.append(b);}
+ for(const v of acts){const b=el('<button class="act">'+v.label+'</button>');b.onclick=()=>actOn(d,p,v.act);strip.append(b);}
 }
 // Re-fetch and re-render the week in place; dayLane reopens the expanded day.
 // Selection is dropped — the partition changes after any correction.
-async function reload(){selPeriod=null;const [st,wk]=await Promise.all([api('/status'),api('/week?offset='+weekOffset)]);renderWeek(st,wk);}
+async function reload(){selPeriod=null;const [st,wk]=await Promise.all([api('/status'),api('/week?offset='+weekOffset+'&ledger='+ledgerMode)]);renderWeek(st,wk);}
 
 function opt(value,text){const o=document.createElement('option');o.value=value;o.textContent=text;return o;}
 
@@ -649,13 +711,19 @@ function renderInstallSteps(box){
   '<p class="muted">It then auto-starts on login. Full per-OS steps (and the unsigned-app prompt): '+
   '<a href="https://github.com/jvuori/flexitracker/blob/master/daemon-py/install/README.md" target="_blank" rel="noopener">install guide</a>.</p>'+
   '<details class="adv"><summary class="muted">Headless or scripted machine? Authorize with a pasted key instead</summary>'+
-  '<div class="row"><input id="mlabel" placeholder="Machine label (e.g. Work laptop)"><button class="act" id="issue">Get a key</button></div>'+
+  '<div class="row"><input id="mlabel" placeholder="Machine label (e.g. Work laptop)"></div>'+
+  '<fieldset class="role"><legend>Machine type</legend>'+
+  '<label><input type="radio" name="mrole" value="work" checked> Work</label>'+
+  '<label><input type="radio" name="mrole" value="personal"> Personal</label>'+
+  '</fieldset>'+
+  '<div class="row"><button class="act" id="issue">Get a key</button></div>'+
   '<div id="manualcmd"></div></details>';
  copy('#copyinst','#instcmd',install);
  copy('#copylogin','#logincmd',login);
  box.querySelector('#issue').onclick=async()=>{
   const label=box.querySelector('#mlabel').value||null;
-  const k=await api('/machines',{method:'POST',body:JSON.stringify({label})});
+  const role=box.querySelector('input[name="mrole"]:checked').value;
+  const k=await api('/machines',{method:'POST',body:JSON.stringify({label,role})});
   const cfg='flexitracker login --key '+k.access_key;
   const out=box.querySelector('#manualcmd');
   out.innerHTML='<p class="muted">Copy this key now — it is shown only once.</p>'+
@@ -680,19 +748,27 @@ function renderMachines(m){
  const doSeen={};for(const mc of m.machines)doSeen[mc.machine_id]=mc;
  const keysByMachine={};for(const k of m.keys){(keysByMachine[k.machine_id]??=[]).push(k);}
  const rows=new Map();
- for(const rm of (m.registryMachines||[]))rows.set(rm.machine_id,{machine_id:rm.machine_id,label:rm.label});
- for(const k of m.keys){if(!rows.has(k.machine_id))rows.set(k.machine_id,{machine_id:k.machine_id,label:k.label});}
+ for(const rm of (m.registryMachines||[]))rows.set(rm.machine_id,{machine_id:rm.machine_id,label:rm.label,role:rm.role||'work'});
+ for(const k of m.keys){if(!rows.has(k.machine_id))rows.set(k.machine_id,{machine_id:k.machine_id,label:k.label,role:'work'});}
 
  view.append(el('<h3>Your machines</h3>'));
  if(!rows.size){view.append(el('<p class="muted">No machines yet — follow the steps above.</p>'));return;}
- const t=el('<table><tr><th>Label</th><th>Hostname</th><th>Last seen</th><th>Key</th><th></th></tr></table>');
+ const t=el('<table><tr><th>Label</th><th>Type</th><th>Hostname</th><th>Last seen</th><th>Key</th><th></th></tr></table>');
  for(const row of rows.values()){
   const mc=doSeen[row.machine_id];
   const keys=(keysByMachine[row.machine_id]||[]).slice().sort((a,b)=>b.created_at-a.created_at);
   const activeKey=keys.find(k=>!k.revoked_at);
-  const tr=el('<tr><td>'+escHtml(row.label||'—')+'</td><td class="muted">'+(mc&&mc.hostname?escHtml(mc.hostname):'—')+'</td>'+
+  const tr=el('<tr><td>'+escHtml(row.label||'—')+'</td><td></td><td class="muted">'+(mc&&mc.hostname?escHtml(mc.hostname):'—')+'</td>'+
    '<td class="muted">'+(mc?new Date(mc.last_seen).toLocaleString():'never')+'</td>'+
    '<td>'+(activeKey?'active':'<span class="muted">revoked</span>')+'</td><td></td></tr>');
+  const roleCell=tr.children[1];
+  const roleBtn=el('<button class="act">'+(row.role==='personal'?'Personal':'Work')+'</button>');
+  roleBtn.onclick=async()=>{
+   const next=row.role==='personal'?'work':'personal';
+   await api('/machines/'+row.machine_id+'/role',{method:'POST',body:JSON.stringify({role:next})});
+   TABS.machines();
+  };
+  roleCell.append(roleBtn);
   const cell=tr.lastChild;
   const rn=el('<button class="act">Rename</button>');
   rn.onclick=async()=>{

@@ -228,6 +228,19 @@ This project MUST never incur any charge — not now, not after any trial or 12-
   Rule of thumb: `403` + `error code: 1010` from this domain = bot-fight mode,
   not Access, not an app-level rejection (which is `401`/`403` with a JSON
   body) — check the User-Agent first.
+- **A QA/local `/test/bootstrap` re-run leaves duplicate-looking machine rows
+  (e.g. 6 rows for 3 machines in the Machines tab)** → `wipeRegistry()`
+  (`registry.ts`) deleted `machine_key` but never `machine`. This was harmless
+  for years because `machine` rows were created almost exclusively by the
+  browser `/device/authorize` flow, which the fixtures loader never exercises —
+  but once every key-issuing path (including the headless `POST /machines`)
+  started guaranteeing a backing `machine` row (`work-personal-ledgers`
+  change), every bootstrap left the previous run's rows behind. Fix: wipe
+  `machine` (and `device_auth`, a similar near-miss) alongside `machine_key`.
+  Rule of thumb: a "wipe everything" function needs updating whenever a new
+  table starts being written by a path that function's callers rely on being
+  clean — grep for `INSERT INTO <table>` across every code path, not just the
+  one you're changing, before trusting an existing wipe/reset is still complete.
 
 ## Environment & tooling gotchas (this machine)
 

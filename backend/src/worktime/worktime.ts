@@ -17,6 +17,11 @@ export interface RawEvent {
   kind: EventKind;
 }
 
+/** Which ledger a day/week is computed for: `work` runs the full engine
+ *  (bridging, office hours, lunch, norm, holidays); `personal` is a reduced
+ *  composition with none of that — see `computeDay`. */
+export type Ledger = "work" | "personal";
+
 export type CorrectionKind = "add_work" | "remove_work" | "holiday";
 export interface Correction {
   kind: CorrectionKind;
@@ -24,6 +29,12 @@ export interface Correction {
   end: number;
   /** Row id, when the correction was loaded from storage (enables undo). */
   id?: number;
+  /** Which ledger this correction was recorded against. Absent means `work`
+   *  — the only ledger that existed before this field was introduced, so a
+   *  pre-migration correction is unambiguously a work-ledger one. Callers are
+   *  expected to pass computeDay/computeWeek only the corrections that belong
+   *  to the ledger being computed; this field is not re-checked here. */
+  ledger?: Ledger;
 }
 
 export interface DayResult {
@@ -177,7 +188,18 @@ function inHours(gap: Interval, tz: string, startMin: number, endMin: number): b
   return gs >= startMin && ge <= endMin && ge >= gs;
 }
 
-/** Compute one local day's result from merged active intervals + corrections. */
+/**
+ * Compute one local day's result from merged active intervals + corrections.
+ *
+ * `mode` selects the ledger: `"work"` (default) runs the full engine exactly
+ * as before. `"personal"` is a strict subset — direct sensor activity (still
+ * dropped below the noise-floor `minActiveSec`) plus manual corrections only.
+ * It skips gap bridging, office-hours gating, the office envelope, holidays,
+ * lunch, and the norm/balance — none of those are office-hours concepts, and
+ * the personal ledger has no office hours. `corrections` is expected to
+ * already be filtered to the ledger being computed (see `Correction.ledger`);
+ * this function does not re-filter it.
+ */
 export function computeDay(
   activeMerged: Interval[],
   corrections: Correction[],
@@ -185,11 +207,14 @@ export function computeDay(
   s: Settings,
   weekdayMon0: number,
   provisionalSpans: ProvisionalSpan[] = [],
+  mode: Ledger = "work",
 ): DayResult {
   const dayEnd = addLocalDays(dayStart, 1, s.timezone);
   const win: Interval = { start: dayStart, end: dayEnd };
 
-  // Sensor active clamped to the day, dropping sub-threshold spans.
+  // Sensor active clamped to the day, dropping sub-threshold spans. The
+  // noise-floor threshold applies in both ledgers — it is about sensor
+  // quality, not work semantics.
   const rawActive: Interval[] = [];
   for (const iv of activeMerged) {
     const c = clamp(iv, win);
@@ -197,13 +222,16 @@ export function computeDay(
   }
   const sensor = rawActive.filter((i) => duration(i) >= s.minActiveSec * 1000);
 
-  // Classify gaps between sensor spans.
+  // Gap classification (bridging vs. reviewable private leave) depends on an
+  // office-hours window that only the work ledger has.
   const bridged: Interval[] = [];
   const reviewable: Interval[] = [];
-  for (const g of gaps(sensor)) {
-    if (!inHours(g, s.timezone, s.workdayStartMin, s.workdayEndMin)) continue;
-    if (duration(g) < s.privateLeaveThresholdSec * 1000) bridged.push(g);
-    else reviewable.push(g);
+  if (mode === "work") {
+    for (const g of gaps(sensor)) {
+      if (!inHours(g, s.timezone, s.workdayStartMin, s.workdayEndMin)) continue;
+      if (duration(g) < s.privateLeaveThresholdSec * 1000) bridged.push(g);
+      else reviewable.push(g);
+    }
   }
 
   // Raw corrections (with ids) drive provenance attribution; the merged
@@ -268,10 +296,11 @@ export function computeDay(
 
   // Office-day envelope: presence spans overlapping the configured window
   // define belonging; the envelope spans their natural boundaries (never the
-  // window times themselves). Drives the "mark whole day as work" fill.
+  // window times themselves). Drives the "mark whole day as work" fill — a
+  // work-ledger-only action, so the personal ledger exposes no envelope.
   const officeStart = dayStart + s.workdayStartMin * MIN;
   const officeEnd = dayStart + s.workdayEndMin * MIN;
-  const belonging = sensor.filter((sp) => sp.end > officeStart && sp.start < officeEnd);
+  const belonging = mode === "work" ? sensor.filter((sp) => sp.end > officeStart && sp.start < officeEnd) : [];
   const officeEnvelope: Interval | null = belonging.length
     ? {
         start: Math.min(...belonging.map((b) => b.start)),
@@ -282,18 +311,20 @@ export function computeDay(
   const grossMs = totalDuration(spans);
   const isWorkingDay = s.workingWeekdays.includes(weekdayMon0);
   // Holiday markers are full-day corrections; they carry no interval math (they
-  // never enter the add/remove filters above) and only zero the day's norm.
-  const holidayCorr = corrections.filter(
-    (c) => c.kind === "holiday" && c.end > win.start && c.start < win.end,
-  );
+  // never enter the add/remove filters above) and only zero the day's norm —
+  // a work-ledger-only concept, since the personal ledger has no norm to zero.
+  const holidayCorr =
+    mode === "work"
+      ? corrections.filter((c) => c.kind === "holiday" && c.end > win.start && c.start < win.end)
+      : [];
   const isHoliday = holidayCorr.length > 0;
   const holidayCorrectionIds = holidayCorr
     .filter((c) => c.id !== undefined)
     .map((c) => c.id as number);
   const lunchMs =
-    grossMs > s.lunchThresholdMin * MIN ? s.lunchDeductMin * MIN : 0;
+    mode === "work" && grossMs > s.lunchThresholdMin * MIN ? s.lunchDeductMin * MIN : 0;
   const workedMs = Math.max(0, grossMs - lunchMs);
-  const normMs = isWorkingDay && !isHoliday ? s.dailyNormMin * MIN : 0;
+  const normMs = mode === "work" && isWorkingDay && !isHoliday ? s.dailyNormMin * MIN : 0;
 
   return {
     dayStart,
@@ -356,30 +387,35 @@ export interface WeekResult {
   weeklyBalanceMs: number;
 }
 
-/** Assemble a Mon–Sun week. `events`/`corrections` should cover the week. */
+/**
+ * Assemble a Mon–Sun week. `events`/`corrections` should cover the week and,
+ * per `computeDay`, already be filtered to the ledger being computed —
+ * `events` by machine role, `corrections` by `Correction.ledger`.
+ */
 export function computeWeek(
   weekStart: number,
   events: RawEvent[],
   corrections: Correction[],
   s: Settings,
   checkTime: number,
+  mode: Ledger = "work",
 ): WeekResult {
   const { active, provisional } = pairSpans(events, checkTime, graceMs());
   const days: DayResult[] = [];
   let cursor = localDayStart(weekStart, s.timezone);
   for (let i = 0; i < 7; i++) {
-    days.push(computeDay(active, corrections, cursor, s, i, provisional));
+    days.push(computeDay(active, corrections, cursor, s, i, provisional, mode));
     cursor = addLocalDays(cursor, 1, s.timezone);
   }
   const weeklyWorkedMs = days.reduce((sum, d) => sum + d.workedMs, 0);
   // Each holiday on an otherwise-working weekday gives back one daily norm, so a
   // week of holidays nets to zero instead of showing a full-week deficit. A
-  // holiday on an already-non-working day carried no norm, so it changes nothing.
-  const holidayReliefDays = days.filter((d) => d.isHoliday && d.isWorkingDay).length;
-  const weeklyNormMs = Math.max(
-    0,
-    s.weeklyNormMin * MIN - holidayReliefDays * s.dailyNormMin * MIN,
-  );
+  // holiday on an already-non-working day carried no norm, so it changes
+  // nothing. The personal ledger has no norm at all, so there is nothing to
+  // relieve.
+  const holidayReliefDays = mode === "work" ? days.filter((d) => d.isHoliday && d.isWorkingDay).length : 0;
+  const weeklyNormMs =
+    mode === "work" ? Math.max(0, s.weeklyNormMin * MIN - holidayReliefDays * s.dailyNormMin * MIN) : 0;
   return {
     weekStart,
     days,

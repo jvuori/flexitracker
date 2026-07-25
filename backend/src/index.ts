@@ -13,7 +13,6 @@ import {
   findMachine,
   getAccount,
   getOrCreateAccount,
-  issueKey,
   issueKeyForMachine,
   listAccounts,
   listAccountsWithStats,
@@ -28,15 +27,17 @@ import {
   resolveKey,
   resolveOrCreateMachine,
   revokeKey,
+  setMachineRole,
   setRequested,
   whoamiForKey,
   wipeRegistry,
   type AccountStatus,
+  type MachineRole,
 } from "./registry";
 import { isAdmin, requireIdentity, UnauthorizedError, type Identity } from "./identity";
 import { DAEMON_PROTOCOL } from "./worktime/settings";
 import type { Settings } from "./worktime/settings";
-import { graceMs } from "./worktime/worktime";
+import { graceMs, type Ledger } from "./worktime/worktime";
 import { notifyAdmin } from "./mail";
 import { renderApp, renderDeviceApproval, renderDeviceNotActive } from "./ui/render";
 
@@ -196,7 +197,8 @@ api.post("/dev/maintenance", async (c) => {
 
 api.get("/week", async (c) => {
   const offset = Number(c.req.query("offset") ?? "0");
-  return c.json(await tenant(c.env, c.get("accountId")).weekView(offset));
+  const ledger: Ledger = c.req.query("ledger") === "personal" ? "personal" : "work";
+  return c.json(await tenant(c.env, c.get("accountId")).weekView(offset, ledger));
 });
 
 api.get("/settings", async (c) => c.json(await tenant(c.env, c.get("accountId")).getSettings()));
@@ -217,17 +219,33 @@ api.post("/corrections", async (c) => {
     start: number;
     end: number;
     note?: string;
+    ledger?: string;
   };
   if (body.kind !== "add_work" && body.kind !== "remove_work" && body.kind !== "holiday") {
     return c.json({ error: "invalid correction kind" }, 400);
   }
+  const ledger: Ledger = body.ledger === "personal" ? "personal" : "work";
   const id = await tenant(c.env, c.get("accountId")).addCorrection(
     body.kind,
     body.start,
     body.end,
     body.note ?? null,
+    ledger,
   );
   return c.json({ ok: true, id });
+});
+
+// "Move to other side": one atomic gesture that excludes a span from the
+// ledger the user is viewing and includes it in the other — see
+// manual-corrections' "Move a period to the other ledger" requirement.
+api.post("/corrections/move", async (c) => {
+  const body = (await c.req.json()) as { start?: number; end?: number; fromLedger?: string };
+  if (typeof body.start !== "number" || typeof body.end !== "number") {
+    return c.json({ error: "start and end required" }, 400);
+  }
+  const fromLedger: Ledger = body.fromLedger === "personal" ? "personal" : "work";
+  const result = await tenant(c.env, c.get("accountId")).moveToOtherLedger(body.start, body.end, fromLedger);
+  return c.json({ ok: true, ...result });
 });
 
 api.delete("/corrections/:id", async (c) => {
@@ -252,8 +270,15 @@ api.post("/machines", async (c) => {
   // Secondary guard: key issuance requires an active account even if a future
   // route were mounted outside the gate above.
   if (c.get("status") !== "active") return c.json({ error: "account not active" }, 403);
-  const body = (await c.req.json().catch(() => ({}))) as { label?: string };
-  const key = await issueKey(c.env.REGISTRY, c.get("accountId"), body.label ?? null);
+  const body = (await c.req.json().catch(() => ({}))) as { label?: string; role?: string };
+  const accountId = c.get("accountId");
+  const label = body.label?.trim() || "Unnamed machine";
+  const role: MachineRole = body.role === "personal" ? "personal" : "work";
+  // Headless key issuance: always a fresh Machine (never label-resolved, same
+  // as before), but now with a backing `machine` row from the start rather
+  // than the old bare-key legacy path.
+  const machine = await createMachine(c.env.REGISTRY, accountId, label, role);
+  const key = await issueKeyForMachine(c.env.REGISTRY, accountId, machine.machine_id, label);
   return c.json(key);
 });
 
@@ -267,6 +292,16 @@ api.post("/machines/:machineId/rename", async (c) => {
   const label = (body.label ?? "").trim();
   if (!label) return c.json({ error: "label required" }, 400);
   const ok = await renameMachine(c.env.REGISTRY, c.get("accountId"), c.req.param("machineId"), label);
+  if (!ok) return c.json({ error: "unknown machine" }, 404);
+  return c.json({ ok: true });
+});
+
+api.post("/machines/:machineId/role", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { role?: string };
+  if (body.role !== "work" && body.role !== "personal") {
+    return c.json({ error: "role must be 'work' or 'personal'" }, 400);
+  }
+  const ok = await setMachineRole(c.env.REGISTRY, c.get("accountId"), c.req.param("machineId"), body.role);
   if (!ok) return c.json({ error: "unknown machine" }, 404);
   return c.json({ ok: true });
 });
@@ -333,8 +368,14 @@ app.post("/test/bootstrap", async (c) => {
   await ensureAccountRow(c.env.REGISTRY, FIXTURE_ACCOUNT_ID, email);
   await tenant(c.env, FIXTURE_ACCOUNT_ID).reset(); // wipe the fixtures tenant's data
   const keys: string[] = [];
-  for (const label of ["Laptop", "Desktop"]) {
-    keys.push((await ensureKey(c.env.REGISTRY, FIXTURE_ACCOUNT_ID, label)).access_key);
+  // Two work machines (exercise the union-across-machines path within the
+  // work ledger) plus one personal machine (exercises the ledger split).
+  for (const [label, role] of [
+    ["Laptop", "work"],
+    ["Desktop", "work"],
+    ["Personal laptop", "personal"],
+  ] as const) {
+    keys.push((await ensureKey(c.env.REGISTRY, FIXTURE_ACCOUNT_ID, label, role)).access_key);
   }
   return c.json({ accountId: FIXTURE_ACCOUNT_ID, keys });
 });
@@ -380,10 +421,12 @@ test.post("/reset", async (c) => {
 });
 // Mint (or reuse) a machine key under the same account (multi-machine fixtures,
 // no manual UI step). Idempotent by label so repeated deploys don't accumulate
-// keys in the registry.
+// keys in the registry. Role defaults to work, letting fixtures also seed
+// personal-role machines.
 test.post("/machine", async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as { label?: string };
-  return c.json(await ensureKey(c.env.REGISTRY, c.get("acct"), body.label ?? "fixture"));
+  const body = (await c.req.json().catch(() => ({}))) as { label?: string; role?: string };
+  const role = body.role === "personal" ? "personal" : "work";
+  return c.json(await ensureKey(c.env.REGISTRY, c.get("acct"), body.label ?? "fixture", role));
 });
 test.post("/correction", async (c) => {
   const b = (await c.req.json()) as {
@@ -391,13 +434,24 @@ test.post("/correction", async (c) => {
     start: number;
     end: number;
     note?: string;
+    ledger?: string;
   };
-  const id = await tenant(c.env, c.get("acct")).addCorrection(b.kind, b.start, b.end, b.note ?? null);
+  const ledger: Ledger = b.ledger === "personal" ? "personal" : "work";
+  const id = await tenant(c.env, c.get("acct")).addCorrection(b.kind, b.start, b.end, b.note ?? null, ledger);
   return c.json({ ok: true, id });
 });
 test.get("/week", async (c) => {
   const offset = Number(c.req.query("offset") ?? "0");
-  return c.json(await tenant(c.env, c.get("acct")).weekView(offset));
+  const ledger: Ledger = c.req.query("ledger") === "personal" ? "personal" : "work";
+  return c.json(await tenant(c.env, c.get("acct")).weekView(offset, ledger));
+});
+// "Move to other side" for fixtures — exercises the same paired-correction
+// path the web UI's move action uses.
+test.post("/move", async (c) => {
+  const b = (await c.req.json()) as { start: number; end: number; fromLedger?: string };
+  const fromLedger: Ledger = b.fromLedger === "personal" ? "personal" : "work";
+  const result = await tenant(c.env, c.get("acct")).moveToOtherLedger(b.start, b.end, fromLedger);
+  return c.json({ ok: true, ...result });
 });
 app.route("/test", test);
 
@@ -484,6 +538,11 @@ app.get("/device/authorize", async (c) => {
   return c.html(renderDeviceApproval(label, cb, state, existing?.machine_id ?? null, conflict));
 });
 
+/** Parse a role form field, defaulting to `work` (the pre-selected radio value). */
+function parseRole(form: FormData): MachineRole {
+  return form.get("role") === "personal" ? "personal" : "work";
+}
+
 app.post("/device/authorize", async (c) => {
   await ready(c.env);
   let identity: Identity;
@@ -498,6 +557,9 @@ app.post("/device/authorize", async (c) => {
   const cb = String(form.get("cb") ?? "");
   const state = String(form.get("state") ?? "");
   const decision = String(form.get("decision") ?? "");
+  // Only meaningful when a new Machine is actually created (separate, or no
+  // existing match at all) — an existing Machine's role is never re-asked.
+  const role = parseRole(form);
   // The exact Machine shown on the approval page (empty when GET found none).
   const pinnedMachineId = String(form.get("machine_id") ?? "").trim() || null;
   if (!label) return c.text("missing label", 400);
@@ -513,7 +575,7 @@ app.post("/device/authorize", async (c) => {
 
   let machineId: string;
   if (decision === "separate") {
-    machineId = (await createMachine(c.env.REGISTRY, accountId, label)).machine_id;
+    machineId = (await createMachine(c.env.REGISTRY, accountId, label, role)).machine_id;
   } else if (pinnedMachineId) {
     // Reuse exactly the Machine the approval page showed — never re-resolve by
     // label (see deviceConflict's doc comment for why that can retarget).
@@ -528,7 +590,7 @@ app.post("/device/authorize", async (c) => {
     }
     machineId = pinnedMachineId;
   } else {
-    machineId = (await resolveOrCreateMachine(c.env.REGISTRY, accountId, label)).machine_id;
+    machineId = (await resolveOrCreateMachine(c.env.REGISTRY, accountId, label, role)).machine_id;
   }
 
   const key = await issueKeyForMachine(c.env.REGISTRY, accountId, machineId, label);

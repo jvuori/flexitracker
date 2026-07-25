@@ -112,6 +112,23 @@ async function main() {
               kind: c.kind,
               start: tsOf(week.offset, day.wd, c.s),
               end: tsOf(week.offset, day.wd, c.e),
+              ledger: c.ledger,
+            }),
+          },
+          keys[0],
+        );
+      }
+      // "Move to other side": excludes the range from `fromLedger` and
+      // includes it in the other ledger, in one atomic call.
+      for (const mv of day.moves ?? []) {
+        await jf(
+          "/test/move",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              start: tsOf(week.offset, day.wd, mv.s),
+              end: tsOf(week.offset, day.wd, mv.e),
+              fromLedger: mv.fromLedger,
             }),
           },
           keys[0],
@@ -120,10 +137,16 @@ async function main() {
     }
   }
 
-  // Validate each week against the expected oracle.
+  // Validate each week against the expected oracle — work ledger always;
+  // personal ledger only for days that assert something about it, so most
+  // weeks pay no extra request.
   for (const week of WEEKS) {
     console.log(`\n${week.label} (offset ${week.offset}):`);
     const wk = await jf(`/test/week?offset=${week.offset}`, {}, keys[0]);
+    const needsPersonal = week.days.some((d) => d.expectPersonal);
+    const wkPersonal = needsPersonal
+      ? await jf(`/test/week?offset=${week.offset}&ledger=personal`, {}, keys[0])
+      : null;
     for (const day of week.days) {
       const d = wk.days[day.wd];
       const worked = Math.round(d.workedMs / MIN);
@@ -135,7 +158,16 @@ async function main() {
       if (day.expect.manualAdded) {
         check(ctx, d.spans.some((s) => s.provenance === "manual_added"), "missing manual_added provenance");
       }
-      if (worked === day.expect.worked && balance === day.expect.balance && d.reviewableGaps.length === day.expect.reviewable) {
+      let personalOk = true;
+      if (day.expectPersonal) {
+        const dp = wkPersonal.days[day.wd];
+        const pWorked = Math.round(dp.workedMs / MIN);
+        personalOk = pWorked === day.expectPersonal.worked;
+        check(`${ctx} (personal)`, personalOk, `personal worked ${pWorked} ≠ ${day.expectPersonal.worked}`);
+        // The personal ledger never applies a norm — every day is credit-only.
+        check(`${ctx} (personal balance = worked)`, dp.balanceMs === dp.workedMs, "personal balance should equal worked time (no norm)");
+      }
+      if (worked === day.expect.worked && balance === day.expect.balance && d.reviewableGaps.length === day.expect.reviewable && personalOk) {
         console.log(`  ✓ ${day.label}`);
       }
     }
