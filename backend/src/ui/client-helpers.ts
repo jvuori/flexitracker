@@ -66,7 +66,7 @@ function markRawProvisional(segs,provisional){
 }
 `;
 
-// Pure helpers for the day-view redesign: the receipt's component sums, the
+// Pure helpers for the day-view redesign: the receipt's component sums,
 // the reportable rounding, and — most importantly — the classifier's state
 // table. Keeping the state table pure is what makes it testable without a DOM:
 // it decides WHICH corrections a classifier choice implies, and the client
@@ -96,6 +96,27 @@ function receiptSums(periods){
 // anything standing in an arithmetic relationship must be exact.
 function round30(ms){return Math.round(ms/1800000)*1800000;}
 function dec30(ms){return (round30(ms)/3600000).toFixed(1);}
+
+// The spans "Mark whole day as work" would actually add: the gap/review periods
+// lying inside the office-day envelope, clipped to it. The button's VISIBILITY
+// and its action both derive from this, so the button can never be offered on a
+// day where pressing it would do nothing.
+//
+// Two ways a day has an envelope but nothing to fill: the office-overlapping
+// presence is one continuous block (no interior gap at all), or the only
+// interior non-counting periods are removed ones — deliberate exclusions, which
+// the fill must preserve rather than paper over.
+function fillSpans(d){
+ const env=d.officeEnvelope;
+ if(!env)return [];
+ const out=[];
+ for(const p of d.periods){
+  if(p.type!=='review'&&p.type!=='gap')continue;
+  const s=Math.max(p.start,env.start),e=Math.min(p.end,env.end);
+  if(e>s)out.push({start:s,end:e});
+ }
+ return out;
+}
 
 // The classifier's state table: given a period, the ledger in view, and the
 // position the user picked, return the ordered corrections to apply. Returns an

@@ -12,12 +12,16 @@ type Op =
   | { op: "move"; from: string };
 
 const h = new Function(
-  `${CLASSIFY_HELPERS_SRC}; return { countsNow, receiptSums, round30, dec30, classifyPlan };`,
+  `${CLASSIFY_HELPERS_SRC}; return { countsNow, receiptSums, round30, dec30, fillSpans, classifyPlan };`,
 )() as {
   countsNow: (p: Period) => boolean;
   receiptSums: (p: Period[]) => Record<string, number>;
   round30: (ms: number) => number;
   dec30: (ms: number) => string;
+  fillSpans: (d: {
+    officeEnvelope: { start: number; end: number } | null;
+    periods: Period[];
+  }) => { start: number; end: number }[];
   classifyPlan: (p: Period, target: string, ledger: string) => Op[];
 };
 
@@ -102,6 +106,74 @@ describe("the reportable value is an output, never a term", () => {
     // dec30 itself has no opinion about empty days; the suppression is the
     // lane's, and is asserted against the rendered client below.
     expect(h.dec30(0)).toBe("0.0");
+  });
+});
+
+// "Mark whole day as work" must not be offered on a day where pressing it does
+// nothing. Its visibility and its action share this computation, so they cannot
+// drift apart.
+describe("fillSpans", () => {
+  const env = { start: 9 * H, end: 17 * H };
+
+  it("returns the gaps inside the envelope, clipped to it", () => {
+    const d = {
+      officeEnvelope: env,
+      periods: [
+        per("gap", 0, 9 * H),
+        per("sensor", 9 * H, 11 * H),
+        per("gap", 11 * H, 12 * H),
+        per("sensor", 12 * H, 17 * H),
+        per("gap", 17 * H, 24 * H),
+      ],
+    };
+    expect(h.fillSpans(d)).toEqual([{ start: 11 * H, end: 12 * H }]);
+  });
+
+  it("is empty when the office presence is one continuous block", () => {
+    // The reported case: presence 09:51-16:07 overlaps the window and yields an
+    // envelope, but there is no interior gap, so the button would be inert.
+    const d = {
+      officeEnvelope: { start: 9.85 * H, end: 16.12 * H },
+      periods: [
+        per("gap", 0, 9.85 * H),
+        per("sensor", 9.85 * H, 16.12 * H),
+        per("gap", 16.12 * H, 24 * H),
+      ],
+    };
+    expect(h.fillSpans(d)).toEqual([]);
+  });
+
+  it("is empty when the only interior non-counting period is a removal", () => {
+    // A deliberate exclusion the fill must preserve, so there is nothing to add.
+    const d = {
+      officeEnvelope: env,
+      periods: [
+        per("sensor", 9 * H, 12 * H),
+        per("removed", 12 * H, 13 * H),
+        per("sensor", 13 * H, 17 * H),
+      ],
+    };
+    expect(h.fillSpans(d)).toEqual([]);
+  });
+
+  it("clips a gap that straddles the envelope boundary", () => {
+    const d = {
+      officeEnvelope: env,
+      periods: [per("gap", 8 * H, 10 * H), per("sensor", 10 * H, 17 * H)],
+    };
+    expect(h.fillSpans(d)).toEqual([{ start: 9 * H, end: 10 * H }]);
+  });
+
+  it("includes reviewable breaks, which are fillable like plain gaps", () => {
+    const d = {
+      officeEnvelope: env,
+      periods: [per("sensor", 9 * H, 11 * H), per("review", 11 * H, 14 * H), per("sensor", 14 * H, 17 * H)],
+    };
+    expect(h.fillSpans(d)).toEqual([{ start: 11 * H, end: 14 * H }]);
+  });
+
+  it("is empty when the day has no envelope at all", () => {
+    expect(h.fillSpans({ officeEnvelope: null, periods: [per("sensor", 20 * H, 22 * H)] })).toEqual([]);
   });
 });
 
@@ -242,6 +314,16 @@ describe("the inlined browser client", () => {
   it("offers the three classifier positions instead", () => {
     expect(code).toContain("This time was");
     expect(code).toContain("'neither'");
+  });
+
+  it("offers no control that would have no effect", () => {
+    // Fill is gated on there being something to fill, not on an envelope
+    // merely existing; the mode toggle's current mode is not actionable; and a
+    // selection with nothing actionable says so instead of showing dead buttons.
+    expect(code).toContain("isWork&&fillSpans(d).length");
+    expect(code).not.toContain("isWork&&d.officeEnvelope");
+    expect(code).toContain("ledgerMode==='work'?' disabled':''");
+    expect(code).toContain("Nothing to change here in the ");
   });
 
   it("no longer renders a legend", () => {

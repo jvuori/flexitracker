@@ -28,6 +28,7 @@ The vocabulary compounds it. `Exclude` names a database operation, not a stateme
 - **Raw per-machine lanes collapse behind a disclosure**, closed by default. This reverses the `machine-activity-lanes` decision to always show them: for the single-machine user — the common case — they duplicate the merged lane and add a second full-width chart to parse. A collapsed heading is an equally consistent shape.
 - **The clipped selection ring is fixed.** `.seg.sel` uses `outline`, which paints outside the box, inside a `.track` with `overflow:hidden`; on `.mlane .track` (18px, seg `top:2px;height:14px`) there is no room and the ring is shaved. It becomes an inset ring.
 - **Touch targets in the period list reach 44px**, and the classifier becomes a full-width segmented control at narrow widths.
+- **No control is offered where activating it would change nothing.** "Mark whole day as work" was gated on a day merely having an office-day envelope, so it appeared — inert — whenever the office presence was one continuous block or its only interior gap was an exclusion the fill must preserve. Its availability and its action now derive from one computation. The mode toggle's current position becomes non-actionable, and a selection with nothing to act on states that rather than showing a row of dead positions.
 
 Non-goals: no change to how corrections compose, to the DO schema, to bridging/lunch/norm rules, or to any computed number. Every figure this change displays is already computed today.
 

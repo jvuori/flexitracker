@@ -74,3 +74,12 @@
 - [x] 9.5 Drop `transcriptionRows` from the client helpers; keep `round30`/`dec30` for the lane
 - [x] 9.6 Update the unit tests: retire the transcription-pane coverage, add coverage that the lane's reportable value and lunch placement follow the revised rules
 - [x] 9.7 Verify locally that the lane reconciles (exact − norm = balance), that no rounded weekly aggregate appears, and that lunch reads in the receipt
+
+## 10. Revision: no inert controls
+
+- [x] 10.1 Extract `fillSpans` as a pure helper so the whole-day fill's availability and its action derive from one computation
+- [x] 10.2 Gate "Mark whole day as work" on `fillSpans(d).length`, not on the envelope merely existing
+- [x] 10.3 Mark the mode toggle's current ledger non-actionable while keeping it visibly selected
+- [x] 10.4 Replace an all-non-actionable classifier with a stated reason instead of three dead positions
+- [x] 10.5 Unit-test `fillSpans`, including the continuous-block and exclusion-only cases that produced the inert button
+- [x] 10.6 Verify locally on a day with a continuous office block and on one with an interior gap

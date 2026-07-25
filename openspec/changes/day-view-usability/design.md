@@ -57,6 +57,13 @@ The lane's three-line numbers cell becomes: **exact worked** (dominant) · **`~8
 - *Trade-off:* no rounded weekly total anywhere. Summing five rounded days is left to the reader or to the employer's system. Deliberate: any rounded weekly aggregate would disagree with the summary's exact total, which is exactly the class of contradiction this change removes.
 - *Cost:* the TSV copy action goes with the pane. It served the same job, but it was speculative — no clipboard workflow was ever established — and reintroducing it needs a home that is not a week-level pane.
 
+### A control's availability derives from its action, never approximates it
+
+`Mark whole day as work` was gated on `d.officeEnvelope` existing while `fillDay` iterated the gap/review periods *inside* that envelope — two different conditions, so the button appeared inert whenever the envelope held nothing fillable (office presence in one continuous block, or an interior gap that is a deliberate exclusion the fill must preserve). Both now call one pure `fillSpans(d)`: the button is offered iff it returns spans, and pressing it adds exactly those.
+
+- *Why a shared computation rather than a second guard:* a hand-written availability test is a restatement of the action's precondition, and restatements drift. This class of bug returns the moment the two are written separately.
+- *Scope:* this covers controls that change *nothing anywhere*. A classifier position that writes to the ledger you are not viewing does have an effect — it is simply invisible from here — which is a feedback problem, tracked as an open question rather than solved by disabling a capability.
+
 ### Lunch moves out of the lane and into the receipt
 
 - *Why:* the collapsed lane shows neither gross nor worked-before-lunch, so a bare `Lunch 30m` there names a deduction from a quantity the user cannot see. In the receipt it sits between gross and worked, where it reads as the step it is. The `Per-day lunch deduction visible` requirement is modified accordingly — its intent (the user can see why worked is below gross) is better served, not dropped.
@@ -194,4 +201,5 @@ The Advanced control keeps its exact-times inputs and adopts the same classifier
 - ~~**Does the transcription summary belong to the week view or its own surface?**~~ **Resolved: neither.** The pane was cut and the rounded value moved into the day lane's third slot, displacing the lunch figure. A week-level pane forced a cross-reference back to the lanes for a job done a day at a time, and its sum-of-rounded total sat beside the summary's exact total. See *The reportable value goes in the lane's third slot*.
 - **What does the receipt show in personal mode?** Reduced to `at the computer` + `you added` = total, since bridging, lunch, and the office window do not exist there. Assumed; confirm against the reduced-composition requirement during implementation.
 - ~~**Should the exact/rounded pairing survive anywhere per-day?**~~ **Resolved: yes, on the lane itself** — exact dominant, rounded subordinate, in contrasting unit forms. The `worktime-calculation` requirement is restated around the arithmetic-relationship rule rather than a blanket ban on showing the two together.
+- **Cross-ledger writes are invisible from the current view.** Classifying a `gap`, `review`, or `removed` period as the *other* ledger writes an `add_work` there, but nothing in the current view changes, so it is indistinguishable from a dead control. The capability is worth keeping (it saves a mode switch); what it lacks is feedback. This converges with the undo toast above — one toast would cover both "your cross-ledger write landed" and "undo this deletion".
 - **Does the copy affordance deserve a home?** Removed with the transcription pane. If a clipboard workflow turns out to matter, it needs somewhere that is not a week-level block — a per-lane copy, or an action in the week summary.

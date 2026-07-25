@@ -81,6 +81,29 @@ The reportable value SHALL be visually subordinate to the exact working time and
 - **WHEN** a day shows both an exact working time and a reportable value
 - **THEN** the day's balance is the exact working time minus the day's norm, and is not derived from the reportable value
 
+### Requirement: No inert control is offered as actionable
+A control whose activation would produce no change to any ledger SHALL NOT be presented as actionable. Where the control is a whole action, it SHALL be omitted; where it is one position of a multi-position control, that position SHALL be marked non-actionable rather than removed, so the control's shape stays stable. Where a selection offers no actionable position at all, the surface SHALL state that in words rather than present a row of non-actionable positions whose only explanation is a pointer-dependent tooltip.
+
+The condition governing a control's availability SHALL be derived from the same computation that its activation performs, so the two cannot disagree. It is not sufficient for the availability test to approximate the action's precondition.
+
+This requirement concerns controls that would change nothing anywhere. A control that changes a ledger the user is not currently viewing is out of its scope — such a control has an effect, and making that effect legible is a separate concern.
+
+#### Scenario: Whole-day fill is withheld when there is nothing to fill
+- **WHEN** a day's office-day envelope contains no gap or reviewable period — for example its office-overlapping presence is one continuous block, or its only interior non-counting period is one the user excluded
+- **THEN** the "Mark whole day as work" action is not offered on that day, even though the day has an office-day envelope
+
+#### Scenario: Whole-day fill is offered when it would add time
+- **WHEN** a day's office-day envelope contains at least one gap or reviewable period
+- **THEN** the action is offered, and activating it adds exactly the spans that made it available
+
+#### Scenario: The current ledger mode is not actionable
+- **WHEN** the week view's mode toggle is rendered
+- **THEN** the position matching the ledger currently being viewed is marked non-actionable, while remaining visibly the selected one
+
+#### Scenario: A selection with nothing actionable says so
+- **WHEN** a selection without correction identity overlaps nothing the current ledger can act on
+- **THEN** the surface states that there is nothing to change, instead of showing every position non-actionable
+
 ## MODIFIED Requirements
 
 ### Requirement: Week view as default

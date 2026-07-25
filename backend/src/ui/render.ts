@@ -364,6 +364,9 @@ table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:.35rem;b
 .modetoggle{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
 .modetoggle button{border:none;border-radius:0;background:none;color:var(--fg);padding:.35rem .75rem;cursor:pointer;font-size:.85rem}
 .modetoggle button.active{background:var(--sensor);color:#fff}
+/* The current mode is marked non-actionable, like the classifier's current
+   position — but it must keep looking selected, not disabled-grey. */
+.modetoggle button:disabled{cursor:default;opacity:1}
 fieldset.role{border:1px solid var(--line);border-radius:6px;padding:.4rem .6rem;margin:.4rem 0}
 fieldset.role legend{font-size:.75rem;color:var(--muted);padding:0 .3rem}
 fieldset.role label{display:inline-flex;align-items:center;gap:.3rem;margin:0 .8rem 0 0;font-size:.85rem}
@@ -438,8 +441,8 @@ function renderWeek(st,wk){
  view.append(el('<div class="card"><div class="row"><div>'+status+'</div>'+
    '<div class="muted">week of '+dayFmt(wk.weekStart)+'</div></div></div>'));
  const mode=el('<div class="row"><div class="modetoggle">'+
-   '<button class="'+(ledgerMode==='work'?'active':'')+'" data-m="work">Work</button>'+
-   '<button class="'+(ledgerMode==='personal'?'active':'')+'" data-m="personal">Personal</button>'+
+   '<button class="'+(ledgerMode==='work'?'active':'')+'" data-m="work"'+(ledgerMode==='work'?' disabled':'')+'>Work</button>'+
+   '<button class="'+(ledgerMode==='personal'?'active':'')+'" data-m="personal"'+(ledgerMode==='personal'?' disabled':'')+'>Personal</button>'+
    '</div></div>');
  mode.querySelectorAll('button').forEach(b=>b.onclick=()=>{
   if(ledgerMode===b.dataset.m)return;
@@ -497,8 +500,17 @@ function currentPos(p){return countsNow(p)?ledgerMode:'neither';}
 function classifier(lead,cur,enabled,onPick){
  const box=el('<div class="cls"></div>');
  box.append(el('<span class="lbl">'+lead+'</span>'));
+ const POS=[['work','Work'],['personal','Personal'],['neither','Neither']];
+ // A selection that overlaps nothing actionable (e.g. a typed range over empty
+ // time) would otherwise render three dead buttons whose only explanation is a
+ // tooltip. Exact periods always have a current position, so this is reachable
+ // only for range selections, which claim none.
+ if(cur===null&&!POS.some(o=>enabled(o[0]))){
+  box.append(el('<span class="muted">Nothing to change here in the '+ledgerMode+' view.</span>'));
+  return box;
+ }
  const g=el('<div class="seg3"></div>');
- [['work','Work'],['personal','Personal'],['neither','Neither']].forEach(function(o){
+ POS.forEach(function(o){
   const v=o[0];
   const b=el('<button'+(v===cur?' class="cur"':'')+'>'+o[1]+'</button>');
   if(v===cur){b.disabled=true;b.title='This is how the time counts now.';}
@@ -655,11 +667,10 @@ function dayLane(d,i,now){
 // leaving removed periods (explicit exclusions) untouched. Work-ledger only —
 // the personal ledger never exposes an office envelope to fill.
 async function fillDay(d){
- const env=d.officeEnvelope;if(!env)return;
- for(const p of d.periods){
-  if(p.type!=='review'&&p.type!=='gap')continue;
-  const s=Math.max(p.start,env.start),e=Math.min(p.end,env.end);
-  if(e>s)await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:s,end:e,ledger:'work'})});
+ const spans=fillSpans(d);
+ if(!spans.length)return; // the button is not offered in this state anyway
+ for(const sp of spans){
+  await api('/corrections',{method:'POST',body:JSON.stringify({kind:'add_work',start:sp.start,end:sp.end,ledger:'work'})});
  }
  reload();
 }
@@ -739,7 +750,10 @@ function uncountedNote(d,isWork){
 function periodList(lane,d,isWork){
  const box=el('<div></div>');
  const head=el('<div class="plisthead"><h4>When</h4></div>');
- if(isWork&&d.officeEnvelope){
+ // Gated on there being something to fill, not merely on an envelope existing:
+ // a day whose office presence is one continuous block has an envelope but no
+ // interior gap, so the button would do nothing.
+ if(isWork&&fillSpans(d).length){
   const b=el('<button class="act fillday">Mark whole day as work</button>');
   b.onclick=()=>fillDay(d);
   head.append(b);
