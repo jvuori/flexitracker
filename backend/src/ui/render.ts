@@ -584,12 +584,15 @@ function dayLane(d,i,now){
  // Exact is the DOMINANT figure and the sole basis of the balance beside it —
  // that is what the old lane got wrong (a rounded 8h 00m over an exact-derived
  // +16m, which read as an arithmetic error). The rounded value rides along as a
- // subordinate output in decimal hours: nothing is derived from it, and the unit
- // contrast keeps the two from reading as competing claims. Lunch moved to the
- // receipt, where it sits between gross and worked as the step it actually is.
+ // subordinate output in decimal hours. The '~' is load-bearing: it marks the
+ // figure as approximate, which is what stops anyone doing arithmetic on it
+ // (8.0-7.5 would read as +30m against a +6m balance). The purpose the old
+ // 'report' prefix carried moves to the accessible name — it repeated on every
+ // lane while only the value varies, so it did not earn row space. Lunch moved
+ // to the receipt, where it sits between gross and worked as the step it is.
  const nums=isWork
    ?('<span class="worked">'+hm(d.workedMs)+'</span>'+
-     (d.workedMs>0?'<span class="report">report '+dec30(d.workedMs)+'</span>':'')+
+     (d.workedMs>0?'<span class="report" title="'+dec30(d.workedMs)+' hours — the value to report" aria-label="'+dec30(d.workedMs)+' hours to report">~'+dec30(d.workedMs)+'h</span>':'')+
      '<span class="bal '+balCls+'">'+balTxt+'</span>')
    :'<span class="worked">'+hm(d.workedMs)+'</span>';
  const lane=el('<div class="lane'+(isToday?' today':'')+(zeroNorm?' off':'')+(isWork&&d.isHoliday?' holiday':'')+(d.dayStart===openDay?' open':'')+'">'+

@@ -5,7 +5,7 @@ Working times and balances SHALL be presented so the user can both verify the co
 
 Exact values SHALL be the single basis for every figure that stands in an arithmetic relationship to another figure on screen: a day's or week's working time, its norm, its lunch deduction, and its balance SHALL all be exact, so that any two such figures reconcile. No presentation SHALL invite the user to compute one displayed figure from another and arrive at a third displayed figure that disagrees.
 
-The rounded-to-half-hour value SHALL be presented per day, alongside that day's exact working time, as the value to transcribe. It is exempt from the exactness rule above because it is an output rather than a term — no other displayed figure is derived from it. To keep that distinction legible it SHALL be visually subordinate to the exact working time and rendered in a different unit form, so the two cannot be read as competing statements of the same quantity. Rounding remains a presentation concern only — it SHALL NOT feed any balance, norm comparison, weekly total, or stored value.
+The rounded-to-half-hour value SHALL be presented per day, alongside that day's exact working time, as the value to transcribe. It is exempt from the exactness rule above because it is an output rather than a term — no other displayed figure is derived from it. To keep that distinction legible it SHALL be visually subordinate to the exact working time, rendered in a different unit form, and marked as approximate — so the two cannot be read as competing statements of the same quantity, and the rounded figure does not invite arithmetic against the exact ones beside it. Rounding remains a presentation concern only — it SHALL NOT feed any balance, norm comparison, weekly total, or stored value.
 
 #### Scenario: Exact and rounded both available on the day
 - **WHEN** the user views a week
@@ -17,7 +17,7 @@ The rounded-to-half-hour value SHALL be presented per day, alongside that day's 
 
 #### Scenario: The rounded value is distinguishable from the exact one
 - **WHEN** a day's lane shows both figures
-- **THEN** the exact value is the dominant figure and the rounded value is subordinate and in a different unit form, so neither is mistaken for the other
+- **THEN** the exact value is the dominant figure and the rounded value is subordinate, in a different unit form, and marked as approximate, so neither is mistaken for the other
 
 #### Scenario: Rounding does not affect computation
 - **WHEN** a day's working time is rounded for transcription

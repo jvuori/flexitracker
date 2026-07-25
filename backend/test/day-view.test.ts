@@ -250,9 +250,21 @@ describe("the inlined browser client", () => {
   });
 
   it("carries the reportable value on the lane, gated on the day having worked time", () => {
-    expect(code).toContain("d.workedMs>0?'<span class=\"report\">report '+dec30(d.workedMs)");
+    expect(code).toContain("d.workedMs>0?'<span class=\"report\"");
+    expect(code).toContain("'h</span>'");
     // Exact stays the dominant figure; the balance is still exact-derived.
     expect(code).toContain("'<span class=\"worked\">'+hm(d.workedMs)+'</span>'");
+  });
+
+  it("marks the reportable value approximate and names its purpose accessibly", () => {
+    // The tilde is what stops anyone doing arithmetic on it (8.0-7.5 would read
+    // as +30m against a +6m balance); a screen reader would hear only that
+    // tilde, so the purpose has to live in the accessible name.
+    expect(code).toContain(">~'+dec30(d.workedMs)+'h<");
+    expect(code).toContain("aria-label=");
+    expect(code).toContain("hours to report");
+    // The old visible prefix is gone from the lane.
+    expect(code).not.toContain("report '+dec30");
   });
 
   it("has no week-level transcription pane and no rounded weekly aggregate", () => {

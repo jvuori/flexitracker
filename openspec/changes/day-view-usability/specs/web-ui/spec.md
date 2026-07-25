@@ -57,13 +57,17 @@ The band SHALL NOT be rendered while the personal ledger is selected, consistent
 - **THEN** no office-hours band is rendered on any timeline
 
 ### Requirement: Reportable value on the day lane
-A day's lane SHALL show, alongside its exact working time, that day's working time rounded to the nearest half hour and expressed in decimal hours, labelled as the value to report. Because the user transcribes a day at a time, the reportable value SHALL sit on the day's own row rather than in a separate week-level surface requiring the user to cross-reference it against the lanes.
+A day's lane SHALL show, alongside its exact working time, that day's working time rounded to the nearest half hour and expressed in decimal hours carrying its unit. Because the user transcribes a day at a time, the reportable value SHALL sit on the day's own row rather than in a separate week-level surface requiring the user to cross-reference it against the lanes.
 
-The reportable value SHALL be visually subordinate to the exact working time and SHALL be rendered in a different unit format from it, so the two are never read as competing statements of the same quantity. The exact working time SHALL remain the lane's dominant figure and the sole basis of the day's balance. The reportable value SHALL be shown only on a day that has working time, and only in the work ledger.
+The reportable value SHALL be visually subordinate to the exact working time and SHALL be rendered in a different unit format from it, so the two are never read as competing statements of the same quantity. It SHALL additionally carry an explicit approximation marker, so that it reads as an inexact figure and does not invite arithmetic against the exact figures beside it. Its purpose — that this is the value to transcribe — SHALL be available through its accessible name rather than occupying row space on every lane, since that text repeats on every day while only the value varies. The exact working time SHALL remain the lane's dominant figure and the sole basis of the day's balance. The reportable value SHALL be shown only on a day that has working time, and only in the work ledger.
 
 #### Scenario: Reportable value on a worked day
 - **WHEN** a day in the work ledger has 7h 46m of working time
-- **THEN** its lane shows `7h 46m` as its dominant figure and `8.0` as a subordinate, labelled reportable value
+- **THEN** its lane shows `7h 46m` as its dominant figure and a subordinate `~8.0h`, marked as approximate and carrying its unit
+
+#### Scenario: Purpose is available without occupying the lane
+- **WHEN** a user inspects the reportable value by pointer or with a screen reader
+- **THEN** its accessible name states that this is the value to report, in hours
 
 #### Scenario: Reportable value absent on an empty day
 - **WHEN** a day has no working time
