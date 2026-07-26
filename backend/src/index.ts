@@ -445,6 +445,9 @@ test.get("/week", async (c) => {
   const ledger: Ledger = c.req.query("ledger") === "personal" ? "personal" : "work";
   return c.json(await tenant(c.env, c.get("acct")).weekView(offset, ledger));
 });
+test.get("/status", async (c) => {
+  return c.json(await tenant(c.env, c.get("acct")).getStatus());
+});
 // "Move to other side" for fixtures — exercises the same paired-correction
 // path the web UI's move action uses.
 test.post("/move", async (c) => {

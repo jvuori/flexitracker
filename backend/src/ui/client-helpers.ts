@@ -23,6 +23,35 @@ function minToHM(min){return{h:Math.floor(min/60),m:min%60};}
 function hmToMin(h,m){return Number(h)*60+Number(m);}
 `;
 
+// Date helpers shared by the week view: a locale-independent same-day
+// comparison and an ISO-8601 week number. Both take the account timezone (or
+// resolved y/m/d) as an explicit argument rather than reading a global, so —
+// per the "self-contained" rule above — they can be evaluated and tested in
+// isolation exactly as shipped, unlike clock()/dayFmt() in render.ts, which
+// intentionally close over the module-level TZ.
+export const DATE_HELPERS_SRC = String.raw`
+// A stable Y-M-D key for a timestamp's calendar day in a given IANA
+// timezone — used only to compare "is this the same day", never for
+// display (render.ts's dayFmt is what renders, and it deliberately follows
+// the browser locale rather than a fixed format).
+function localYMD(tz,ts){return new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(ts);}
+
+// ISO-8601 week number for a plain (year, month, day) calendar date. Pure and
+// timezone-independent by design: the caller resolves which calendar day a
+// timestamp falls on (via localYMD above) and passes that in, so this never
+// has to reason about timezones or DST itself — only the standard ISO rule
+// that a week belongs to the year containing its Thursday.
+function isoWeekNumber(y,m,d){
+ const date=new Date(Date.UTC(y,m-1,d));
+ const dayNum=(date.getUTCDay()+6)%7; // Mon=0..Sun=6
+ date.setUTCDate(date.getUTCDate()-dayNum+3); // nearest Thursday
+ const firstThursday=new Date(Date.UTC(date.getUTCFullYear(),0,4));
+ const firstDayNum=(firstThursday.getUTCDay()+6)%7;
+ firstThursday.setUTCDate(firstThursday.getUTCDate()-firstDayNum+3);
+ return 1+Math.round((date.getTime()-firstThursday.getTime())/(7*86400000));
+}
+`;
+
 // Pure helpers for the machine-activity-lanes feature (raw per-machine lanes
 // + the overlap-gated action set for a selection with no correction identity
 // of its own). Same "source string is the single definition" pattern as

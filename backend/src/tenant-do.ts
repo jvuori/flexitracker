@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env";
 import type { EventBatch, EventKind } from "./schema";
-import type { MachineRole } from "./registry";
+import { partitionByLedgerRole, type MachineRole } from "./registry";
 import { clamp, duration, type Interval } from "./worktime/interval";
 import { withDefaults, normalizeSettingsPatch } from "./worktime/settings";
 import type { Settings } from "./worktime/settings";
@@ -515,31 +515,69 @@ export class TenantDO extends DurableObject<Env> {
     }[];
   }
 
-  getStatus(now = Date.now()): StatusView {
-    const last = this.sql
-      .exec("SELECT machine_id, ts, kind FROM event ORDER BY ts DESC LIMIT 1")
+  /** Most recent event among a given set of machines, or none if that set
+   *  has no events at all. Scoping this by machine_id (rather than the
+   *  account-wide latest event) is what lets getStatus() answer "active on
+   *  a machine that counts toward THIS ledger" instead of "active on any
+   *  machine at all." */
+  private lastEventFor(
+    machineIds: Set<string>,
+  ): { machine_id: string; ts: number; kind: string } | undefined {
+    if (machineIds.size === 0) return undefined;
+    const ids = [...machineIds];
+    const placeholders = ids.map(() => "?").join(",");
+    return this.sql
+      .exec(
+        `SELECT machine_id, ts, kind FROM event WHERE machine_id IN (${placeholders}) ORDER BY ts DESC LIMIT 1`,
+        ...ids,
+      )
       .toArray()[0] as { machine_id: string; ts: number; kind: string } | undefined;
-    if (!last) return { state: "unknown", since: null, machineId: null, hostname: null };
+  }
 
-    const s = this.getSettings();
+  /**
+   * Status per ledger: "am I active on a machine currently assigned to THIS
+   * ledger," reusing the same machine-role filtering getWeek() applies via
+   * filterByLedgerRole(). A ledger with no machine currently assigned to it
+   * returns null rather than a fabricated idle/unknown value — the frontend
+   * uses that null to decide whether the Work/Personal toggle is shown at
+   * all.
+   */
+  async getStatus(now = Date.now()): Promise<Record<Ledger, StatusView | null>> {
+    const machines = this.listMachines();
+    const roles = await this.machineRoles(machines.map((m) => m.machine_id));
+    const byLedger = partitionByLedgerRole(
+      machines.map((m) => m.machine_id),
+      roles,
+    );
+    const hostnames = new Map(machines.map((m) => [m.machine_id, m.hostname]));
     const recent = this.loadEvents(now - 2 * DAY_MS, now + DAY_MS);
-    const { active: spans, provisional } = pairSpans(recent, now, graceMs());
-    const openStart = spans.length > 0 ? spans[spans.length - 1]! : null;
-    // "Active now" is exactly "the open span is still growing" — the machine
-    // has been seen within the liveness window. pairSpans already computes that
-    // from the same grace, so this no longer re-derives it from heartbeatSec.
-    const active = provisional.some((p) => p.growing);
 
-    const host = this.sql
-      .exec("SELECT hostname FROM machine WHERE machine_id = ?", last.machine_id)
-      .toArray()[0] as { hostname: string | null } | undefined;
+    const statusFor = (ledger: Ledger): StatusView | null => {
+      const ids = new Set(byLedger[ledger]);
+      if (ids.size === 0) return null;
+      const last = this.lastEventFor(ids);
+      if (!last) return { state: "unknown", since: null, machineId: null, hostname: null };
 
-    return {
-      state: active ? "active" : "idle",
-      since: active ? openStart!.start : last.ts,
-      machineId: last.machine_id,
-      hostname: host?.hostname ?? null,
+      const { active: spans, provisional } = pairSpans(
+        recent.filter((e) => ids.has(e.machine_id)),
+        now,
+        graceMs(),
+      );
+      const openStart = spans.length > 0 ? spans[spans.length - 1]! : null;
+      // "Active now" is exactly "the open span is still growing" — the machine
+      // has been seen within the liveness window. pairSpans already computes that
+      // from the same grace, so this no longer re-derives it from heartbeatSec.
+      const active = provisional.some((p) => p.growing);
+
+      return {
+        state: active ? "active" : "idle",
+        since: active ? openStart!.start : last.ts,
+        machineId: last.machine_id,
+        hostname: hostnames.get(last.machine_id) ?? null,
+      };
     };
+
+    return { work: statusFor("work"), personal: statusFor("personal") };
   }
 
   private loadEvents(from: number, to: number): RawEvent[] {

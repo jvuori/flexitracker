@@ -1,5 +1,5 @@
 import type { Identity } from "../identity";
-import { CLASSIFY_HELPERS_SRC, LANE_HELPERS_SRC, TIME_HELPERS_SRC } from "./client-helpers";
+import { CLASSIFY_HELPERS_SRC, DATE_HELPERS_SRC, LANE_HELPERS_SRC, TIME_HELPERS_SRC } from "./client-helpers";
 
 /**
  * Node-free UI: a single self-contained HTML page with inline CSS (responsive,
@@ -407,7 +407,13 @@ function hm(ms){const neg=ms<0;ms=Math.abs(ms);const m=Math.round(ms/60000);cons
 // zero. Durations keep unsigned hm(); balances use bal() so surplus/deficit read
 // at a glance.
 function bal(ms){const r=hm(Math.abs(ms));return ms>0?'+'+r:ms<0?'-'+r:r;}
-function clock(ts){return new Intl.DateTimeFormat('en-GB',{timeZone:TZ,hour:'2-digit',minute:'2-digit'}).format(ts);}
+// An undefined locale resolves to the browser's own locale at runtime (these
+// run client-side), so dates/times follow whatever the visitor's browser
+// uses instead of a hardcoded format. The timeZone option (the account's
+// configured timezone) is unrelated to locale and stays as-is: locale
+// governs field order/separators/month names, timezone governs which
+// instant a timestamp represents.
+function clock(ts){return new Intl.DateTimeFormat(undefined,{timeZone:TZ,hour:'2-digit',minute:'2-digit'}).format(ts);}
 function el(html){const t=document.createElement('template');t.innerHTML=html.trim();return t.content.firstChild;}
 // Machine labels and registration notes are free-text set by the account
 // owner (and viewable by an admin in the admin console) — escape before
@@ -417,6 +423,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').
 ${TIME_HELPERS_SRC}
 ${LANE_HELPERS_SRC}
 ${CLASSIFY_HELPERS_SRC}
+${DATE_HELPERS_SRC}
 
 const tabs=document.getElementById('tabs');
 tabs.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
@@ -427,8 +434,17 @@ let weekOffset=0;
 // the session (like weekOffset), resets on a full page reload.
 let ledgerMode='work';
 const TABS={
- async week(){view.textContent='Loading…';const [st,s,wk]=await Promise.all([api('/status'),api('/settings'),api('/week?offset='+weekOffset+'&ledger='+ledgerMode)]);
+ async week(){view.textContent='Loading…';let [st,s,wk]=await Promise.all([api('/status'),api('/settings'),api('/week?offset='+weekOffset+'&ledger='+ledgerMode)]);
   TZ=s.timezone;OFFICE={start:s.workdayStartMin,end:s.workdayEndMin};PLTSEC=s.privateLeaveThresholdSec;
+  // The toggle (and thus which ledger is selectable) is derived from which
+  // ledgers currently have a machine assigned — status is the source of that
+  // signal. If the ledger already loaded above turns out not to have a
+  // machine (e.g. a machine's role changed since the last load), fall back
+  // to whichever ledger does and re-fetch that week.
+  if(!(st.work&&st.personal)){
+   const forced=st.personal?'personal':'work';
+   if(forced!==ledgerMode){ledgerMode=forced;wk=await api('/week?offset='+weekOffset+'&ledger='+ledgerMode);}
+  }
   renderWeek(st,wk);},
  async settings(){renderSettings(await api('/settings'));},
  async machines(){renderMachines(await api('/machines'));},
@@ -437,27 +453,55 @@ const TABS={
 
 let openDay=null;
 let selPeriod=null; // {dayStart, idx} — the currently selected period, if any.
-function dayFmt(ts){return new Intl.DateTimeFormat('en-GB',{timeZone:TZ,day:'2-digit',month:'short'}).format(ts);}
+function dayFmt(ts){return new Intl.DateTimeFormat(undefined,{timeZone:TZ,day:'2-digit',month:'short',year:'numeric'}).format(ts);}
+// localYMD/isoWeekNumber come from DATE_HELPERS_SRC above (they take the
+// timezone as an explicit argument rather than closing over TZ, unlike
+// clock()/dayFmt(), so they can be evaluated and tested in isolation).
+//
+// "since <time>" alone is ambiguous once the span crosses a calendar day (in
+// the account timezone) — prefix the date in that case, using the same
+// locale-following format as everywhere else.
+function sinceFmt(ts,now){return localYMD(TZ,ts)===localYMD(TZ,now)?clock(ts):dayFmt(ts)+', '+clock(ts);}
+// wk.weekStart is already Monday-aligned (computeWeek), so resolving its
+// account-timezone calendar date and handing (y,m,d) to isoWeekNumber is
+// always called on a Monday — no start-of-week ambiguity, just the standard
+// ISO year-boundary rule isoWeekNumber itself implements.
+function weekNumberOf(ts){const [y,m,d]=localYMD(TZ,ts).split('-').map(Number);return isoWeekNumber(y,m,d);}
 function stat(k,v,cls){return '<div class="stat"><div class="k">'+k+'</div><div class="v'+(cls?' '+cls:'')+'">'+v+'</div></div>';}
 
 function renderWeek(st,wk){
  view.innerHTML='';
- const status=st.state==='active'?('🟢 active since '+clock(st.since)+(st.hostname?' on '+st.hostname:'')):
-   st.state==='idle'?('⚪ idle since '+clock(st.since)):'— no data';
- view.append(el('<div class="card"><div class="row"><div>'+status+'</div>'+
-   '<div class="muted">week of '+dayFmt(wk.weekStart)+'</div></div></div>'));
- const mode=el('<div class="row"><div class="modetoggle">'+
-   '<button class="'+(ledgerMode==='work'?'active':'')+'" data-m="work"'+(ledgerMode==='work'?' disabled':'')+'>Work</button>'+
-   '<button class="'+(ledgerMode==='personal'?'active':'')+'" data-m="personal"'+(ledgerMode==='personal'?' disabled':'')+'>Personal</button>'+
-   '</div></div>');
- mode.querySelectorAll('button').forEach(b=>b.onclick=()=>{
-  if(ledgerMode===b.dataset.m)return;
-  ledgerMode=b.dataset.m;openDay=null;selPeriod=null;TABS.week();
- });
- view.append(mode);
+ const now=Date.now();
+ // The mode toggle only makes sense where there's something to toggle
+ // between — shown only once a machine is currently assigned to each ledger.
+ // Single-machine/default-role accounts (today's common case) never see it,
+ // and the week view simply behaves as if the ledger with a machine were the
+ // only one that exists.
+ const showToggle=!!(st.work&&st.personal);
+ if(!showToggle)ledgerMode=st.personal?'personal':'work';
+ if(showToggle){
+  const mode=el('<div class="row"><div class="modetoggle">'+
+    '<button class="'+(ledgerMode==='work'?'active':'')+'" data-m="work"'+(ledgerMode==='work'?' disabled':'')+'>Work</button>'+
+    '<button class="'+(ledgerMode==='personal'?'active':'')+'" data-m="personal"'+(ledgerMode==='personal'?' disabled':'')+'>Personal</button>'+
+    '</div></div>');
+  mode.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+   if(ledgerMode===b.dataset.m)return;
+   ledgerMode=b.dataset.m;openDay=null;selPeriod=null;TABS.week();
+  });
+  view.append(mode);
+ }
+ // The status card sits below the toggle (not above it) and reflects only
+ // the currently selected ledger's machines — "active/idle" means active on
+ // a machine that counts toward THIS ledger, not the account as a whole.
+ const ledgerStatus=st[ledgerMode];
+ const status=!ledgerStatus?'— no data':
+   ledgerStatus.state==='active'?('🟢 active since '+sinceFmt(ledgerStatus.since,now)+(ledgerStatus.hostname?' on '+ledgerStatus.hostname:'')):
+   ledgerStatus.state==='idle'?('⚪ idle since '+sinceFmt(ledgerStatus.since,now)):'— no data';
+ view.append(el('<div class="card"><div class="row"><div>'+status+'</div></div></div>'));
  const endTs=wk.days[wk.days.length-1].dayStart;
  const nav=el('<div class="row"><button class="act" id="prev">← prev</button>'+
-   '<div class="big">'+dayFmt(wk.weekStart)+' – '+dayFmt(endTs)+'</div>'+
+   '<div class="big">Week '+weekNumberOf(wk.weekStart)+' · '+dayFmt(wk.weekStart)+' – '+dayFmt(endTs)+'</div>'+
+   '<button class="act" id="today"'+(weekOffset===0?' disabled':'')+'>Today</button>'+
    '<button class="act" id="next">next →</button></div>');
  view.append(nav);
  // Work mode shows the full norm/lunch/balance summary; personal mode is
@@ -472,9 +516,9 @@ function renderWeek(st,wk){
  }else{
   view.append(el('<div class="summary">'+stat('Activity',hm(wk.weeklyWorkedMs))+'</div>'));
  }
- const now=Date.now();
  wk.days.forEach((d,i)=>view.append(dayLane(d,i,now)));
  document.getElementById('prev').onclick=()=>{weekOffset--;openDay=null;TABS.week();};
+ document.getElementById('today').onclick=()=>{weekOffset=0;openDay=null;TABS.week();};
  document.getElementById('next').onclick=()=>{weekOffset++;openDay=null;TABS.week();};
 }
 

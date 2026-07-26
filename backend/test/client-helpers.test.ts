@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LANE_HELPERS_SRC, TIME_HELPERS_SRC } from "../src/ui/client-helpers";
+import { DATE_HELPERS_SRC, LANE_HELPERS_SRC, TIME_HELPERS_SRC } from "../src/ui/client-helpers";
 
 // The browser client is a plain string, so these helpers are defined as source
 // and inlined into it. Evaluating that same source here means the tests
@@ -83,6 +83,61 @@ describe("minToHM / hmToMin", () => {
     const { h, m } = minToHM(7200 / 60);
     expect({ h, m }).toEqual({ h: 2, m: 0 });
     expect(hmToMin(h, m) * 60).toBe(7200);
+  });
+});
+
+const dateHelpers = new Function(`${DATE_HELPERS_SRC}; return { localYMD, isoWeekNumber };`)() as {
+  localYMD: (tz: string, ts: number) => string;
+  isoWeekNumber: (y: number, m: number, d: number) => number;
+};
+const { localYMD, isoWeekNumber } = dateHelpers;
+
+describe("localYMD — same-calendar-day comparison key", () => {
+  it("keys by the timezone's calendar day, not UTC's", () => {
+    // 22:00 UTC on Jan 1 2026 is already Jan 2 in Helsinki (UTC+2 in January).
+    const ts = Date.UTC(2026, 0, 1, 22, 0);
+    expect(localYMD("UTC", ts)).toBe("2026-01-01");
+    expect(localYMD("Europe/Helsinki", ts)).toBe("2026-01-02");
+  });
+
+  it("treats an idle span crossing midnight as a different day despite <1h elapsed", () => {
+    // The exact scenario a multi-day idle status needs to disambiguate:
+    // idle since 23:50, now 00:10 — 20 minutes apart, but a different day.
+    const since = Date.UTC(2026, 0, 1, 23, 50);
+    const now = Date.UTC(2026, 0, 2, 0, 10);
+    expect(localYMD("UTC", since)).not.toBe(localYMD("UTC", now));
+  });
+
+  it("treats same-day timestamps hours apart as the same day", () => {
+    const morning = Date.UTC(2026, 0, 1, 8, 0);
+    const evening = Date.UTC(2026, 0, 1, 20, 0);
+    expect(localYMD("UTC", morning)).toBe(localYMD("UTC", evening));
+  });
+});
+
+describe("isoWeekNumber", () => {
+  it("puts January 4th in week 1 of every year (the ISO 8601 definition)", () => {
+    for (let y = 2015; y <= 2030; y++) expect(isoWeekNumber(y, 1, 4)).toBe(1);
+  });
+
+  it("puts December 28th in the year's last week (52 or 53, per ISO 8601)", () => {
+    for (let y = 2015; y <= 2030; y++) expect([52, 53]).toContain(isoWeekNumber(y, 12, 28));
+  });
+
+  it("gives 2020 (a 53-week ISO year) week 53 for its last Monday", () => {
+    // 2020-12-28 is a Monday; 2020 is one of the rare 53-ISO-week years.
+    expect(isoWeekNumber(2020, 12, 28)).toBe(53);
+  });
+
+  it("crosses the year boundary forward: a December Monday can belong to next year's week 1", () => {
+    // 2024-12-30 is a Monday whose Thursday (2025-01-02) falls in 2025.
+    expect(isoWeekNumber(2024, 12, 30)).toBe(1);
+  });
+
+  it("crosses the year boundary backward: early January can belong to the previous year's last week", () => {
+    // 2021-01-01 is a Friday; its week's Thursday (2020-12-31) falls in 2020,
+    // so it belongs to 2020's week 53, not week 1 of 2021.
+    expect(isoWeekNumber(2021, 1, 1)).toBe(53);
   });
 });
 

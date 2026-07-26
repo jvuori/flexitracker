@@ -177,6 +177,24 @@ async function main() {
     check(`weekly balance (${wBal}m)`, wBal === week.weeklyBalance, `${wBal} ≠ ${week.weeklyBalance}`);
   }
 
+  // getStatus() ledger-scoping: the fixtures account has two work-role
+  // machines (Laptop, Desktop) and one personal-role machine (Personal
+  // laptop), so both ledgers should report status, and — the whole point of
+  // scoping status by ledger — they must not both be reporting on the same
+  // machine. Structural rather than timing-based, so it stays valid however
+  // the fixture data's exact hours change.
+  console.log("\nstatus (ledger-scoped):");
+  const status = await jf("/test/status", {}, keys[0]);
+  check("work ledger has status (a work-role machine exists)", !!status.work, JSON.stringify(status));
+  check("personal ledger has status (a personal-role machine exists)", !!status.personal, JSON.stringify(status));
+  if (status.work && status.personal) {
+    check(
+      "work and personal status report different machines",
+      status.work.machineId !== status.personal.machineId,
+      JSON.stringify(status),
+    );
+  }
+
   console.log(failures === 0 ? "\nALL FIXTURES VALID" : `\n${failures} FAILURE(S)`);
   process.exit(failures === 0 ? 0 : 1);
 }

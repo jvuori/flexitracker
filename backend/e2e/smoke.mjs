@@ -198,7 +198,12 @@ async function run() {
     check("manual_added provenance present", mon.spans.some((s) => s.provenance === "manual_added"));
 
     const removed = (await j("/api/week?offset=0")).days[0];
-    check("status resolves", ["active", "idle", "unknown"].includes((await j("/api/status")).state));
+    // Status is per-ledger now; this account's only machine defaults to the
+    // work role (no role was specified when the key was issued), so work
+    // resolves and personal — no machine assigned to that ledger — is absent.
+    const status = await j("/api/status");
+    check("work ledger status resolves", ["active", "idle", "unknown"].includes(status.work?.state), JSON.stringify(status));
+    check("personal ledger has no status (no machine assigned to it)", status.personal === null, JSON.stringify(status));
     void removed;
   } finally {
     // Clean up so the run is repeatable against a persistent QA account.

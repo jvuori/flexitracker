@@ -41,6 +41,25 @@ export interface MachineKey {
 export type MachineRole = "work" | "personal";
 
 /**
+ * Bucket machine ids by their current ledger role, defaulting an unknown
+ * role to `work` — the same safe default `filterByLedgerRole` (tenant-do.ts)
+ * uses, so an ingest race between a fresh Machine row and its first events
+ * cannot silently inflate a personal total. Pure so the role-partitioning at
+ * the heart of ledger-scoped status (which machines count toward which
+ * ledger) is unit-testable without a Durable Object — this file has no
+ * `cloudflare:workers` import, unlike tenant-do.ts, so it loads under plain
+ * vitest.
+ */
+export function partitionByLedgerRole(
+  machineIds: string[],
+  roles: Map<string, MachineRole>,
+): Record<MachineRole, string[]> {
+  const byLedger: Record<MachineRole, string[]> = { work: [], personal: [] };
+  for (const id of machineIds) byLedger[roles.get(id) ?? "work"].push(id);
+  return byLedger;
+}
+
+/**
  * A durable Machine: `machine_id` is stable across key rotations and hardware
  * replacements, distinct from the (rotatable, revocable) key that currently
  * authorizes it. See `resolveOrCreateMachine`/`findMachine`.
