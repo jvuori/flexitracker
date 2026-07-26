@@ -198,7 +198,14 @@ main{max-width:900px;margin:0 auto;padding:1rem}
    inferred, bare not-counted); the accent underline = you asserted it. Measured
    and auto-bridged MUST stay distinguishable — a counted period may never hide
    the idle it was bridged over. */
-.seg{position:absolute;top:5px;height:14px;border-radius:3px;min-width:2px}
+/* Centred by transform, never by a literal top offset. A track's inner height
+   is its height minus its 1px borders (box-sizing:border-box), and an
+   absolutely positioned child offsets from that padding box — so a hand-tuned
+   top has to be recomputed whenever a track height changes. Both had drifted,
+   in opposite directions: the 30px merged track sat 5 above / 9 below, the
+   20px raw track 3 above / 1 below. This centres at any height, so raw lanes
+   need no override at all. */
+.seg{position:absolute;top:50%;transform:translateY(-50%);height:14px;border-radius:3px;min-width:2px}
 .seg.sensor{background:var(--sensor)}
 .seg.auto_bridged{background-color:var(--sensor-soft);
  background-image:repeating-linear-gradient(135deg,var(--sensor) 0 3px,transparent 3px 7px)}
@@ -232,13 +239,12 @@ main{max-width:900px;margin:0 auto;padding:1rem}
 .mlane{display:grid;grid-template-columns:96px 1fr 118px;gap:.6rem;align-items:center;margin:.25rem 0}
 .mlabel{font-size:.72rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mlane .track{height:20px;cursor:pointer}
-.mlane .seg{top:3px;height:14px}
-/* Selection must come AFTER .mlane .seg — equal specificity, so source order
-   decides. It grows to the full track height and rings itself INWARD: the old
-   outline painted outside the box inside an overflow:hidden track, which on the
-   shorter raw lanes had no room and got shaved. Growth also keeps a segment at
-   min-width legible, which an inward ring alone would not. */
-.seg.sel{top:0;height:100%;outline:2px solid var(--fg);outline-offset:-2px;border-radius:3px;z-index:3}
+/* Selection fills the track, so it opts out of the centring above, and rings
+   itself INWARD: the old outline painted outside the box inside an
+   overflow:hidden track, which on the shorter raw lanes had no room and got
+   shaved. Filling the height also keeps a segment at min-width legible, which
+   an inward ring alone would not. */
+.seg.sel{top:0;height:100%;transform:none;outline:2px solid var(--fg);outline-offset:-2px;border-radius:3px;z-index:3}
 .detail{display:none;margin-top:.6rem;padding-top:.6rem;border-top:1px dashed var(--line2)}
 .lane.open .detail{display:block}
 /* The period marker doubles as the receipt's swatch — the receipt defines the
