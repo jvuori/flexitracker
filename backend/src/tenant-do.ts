@@ -433,9 +433,29 @@ export class TenantDO extends DurableObject<Env> {
     // the rollup numbers (tiered retention). Pruning is day-scoped, not
     // ledger-scoped, so "does raw data exist for this day" is checked against
     // every event regardless of role.
+    //
+    // A day can have zero raw events for a reason that has nothing to do with
+    // pruning: it was simply a day off, with nothing ever ingested. Such a day
+    // is indistinguishable from "pruned" by the raw-presence check alone, so a
+    // sealed rollup that predates a later correction (a holiday marker, or any
+    // settings change wide enough to call markAllDaysDirty) would otherwise be
+    // served as if it were current. `dirty_day` already tracks exactly this:
+    // a day is inserted there the moment a correction or ingest could have
+    // changed its outcome, and removed only once `sealDay` has re-derived the
+    // rollup from the live correction set. So a dirty day's rollup — if one
+    // exists at all — is stale by definition, and the live `computeWeek`
+    // result above (which already reflects every current correction) must be
+    // trusted instead, exactly as it already is for a day with fresh raw data.
+    const dirtyDays = new Set(
+      (
+        this.sql
+          .exec("SELECT day_start FROM dirty_day WHERE day_start >= ? AND day_start < ?", start, end)
+          .toArray() as { day_start: number }[]
+      ).map((r) => r.day_start),
+    );
     const daysWithRaw = new Set(allEvents.map((e) => localDayStart(e.ts, s.timezone)));
     for (const day of week.days) {
-      if (daysWithRaw.has(day.dayStart)) continue;
+      if (daysWithRaw.has(day.dayStart) || dirtyDays.has(day.dayStart)) continue;
       const roll = this.sql
         .exec("SELECT * FROM daily_rollup WHERE day_start = ?", day.dayStart)
         .toArray()[0] as

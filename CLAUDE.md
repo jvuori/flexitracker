@@ -255,6 +255,26 @@ This project MUST never incur any charge — not now, not after any trial or 12-
   table starts being written by a path that function's callers rely on being
   clean — grep for `INSERT INTO <table>` across every code path, not just the
   one you're changing, before trusting an existing wipe/reset is still complete.
+- **A day marked as a holiday (or any other correction) keeps its stale figures
+  in the week view — e.g. a holiday with no work still shows a full-day norm
+  deficit** → `getWeek`'s tiered-retention fallback used "does this day
+  currently have any raw event" (`daysWithRaw`) as its only signal for "trust
+  the sealed `daily_rollup` instead of the live computation." That conflates
+  two different things: a day whose raw was genuinely **pruned**, and a day
+  that simply **never had any activity** (any day off) — both look like zero
+  raw events, but only the first is what tiered retention is for. If that
+  empty day was ever swept into a sealed rollup *before* the correction
+  existed — which any `PUT /settings` does for every day between the
+  account's earliest and latest event, via `markAllDaysDirty`, regardless of
+  whether those days have activity — the read path then serves that
+  pre-correction rollup forever, until the next maintenance alarm happens to
+  reseal it. Fix: also check `dirty_day` for the day; a dirty day's rollup, if
+  one exists, is stale by definition (that's what dirty means), so the
+  already-correct live `computeWeek` result must win instead of being
+  overwritten. Reproduced and verified entirely via `/api/dev/maintenance`
+  (dev-only, forces an immediate reseal) rather than waiting for the alarm —
+  useful for any bug shaped like "the correction landed, but an old sealed
+  number is still showing."
 
 ## Environment & tooling gotchas (this machine)
 
