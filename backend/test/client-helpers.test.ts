@@ -86,11 +86,15 @@ describe("minToHM / hmToMin", () => {
   });
 });
 
-const dateHelpers = new Function(`${DATE_HELPERS_SRC}; return { localYMD, isoWeekNumber };`)() as {
+const dateHelpers = new Function(
+  `${DATE_HELPERS_SRC}; return { localYMD, isoWeekNumber, addDaysYMD, isValidYMD };`,
+)() as {
   localYMD: (tz: string, ts: number) => string;
   isoWeekNumber: (y: number, m: number, d: number) => number;
+  addDaysYMD: (ymd: string, n: number) => string;
+  isValidYMD: (s: unknown) => boolean;
 };
-const { localYMD, isoWeekNumber } = dateHelpers;
+const { localYMD, isoWeekNumber, addDaysYMD, isValidYMD } = dateHelpers;
 
 describe("localYMD — same-calendar-day comparison key", () => {
   it("keys by the timezone's calendar day, not UTC's", () => {
@@ -138,6 +142,56 @@ describe("isoWeekNumber", () => {
     // 2021-01-01 is a Friday; its week's Thursday (2020-12-31) falls in 2020,
     // so it belongs to 2020's week 53, not week 1 of 2021.
     expect(isoWeekNumber(2021, 1, 1)).toBe(53);
+  });
+});
+
+describe("addDaysYMD — pure calendar-date arithmetic for the week=/day= URL params", () => {
+  it("steps within a month", () => {
+    expect(addDaysYMD("2026-07-20", 1)).toBe("2026-07-21");
+    expect(addDaysYMD("2026-07-20", -1)).toBe("2026-07-19");
+  });
+
+  it("shifts a full week, the prev/next navigation case", () => {
+    expect(addDaysYMD("2026-07-20", 7)).toBe("2026-07-27");
+    expect(addDaysYMD("2026-07-20", -7)).toBe("2026-07-13");
+  });
+
+  it("rolls over a month boundary", () => {
+    expect(addDaysYMD("2026-07-28", 7)).toBe("2026-08-04");
+  });
+
+  it("rolls over a year boundary", () => {
+    expect(addDaysYMD("2026-12-29", 7)).toBe("2027-01-05");
+  });
+
+  it("is a no-op at n=0", () => {
+    expect(addDaysYMD("2026-07-20", 0)).toBe("2026-07-20");
+  });
+});
+
+describe("isValidYMD — the week=/day= URL param validator", () => {
+  it("accepts a well-formed calendar date", () => {
+    expect(isValidYMD("2026-07-20")).toBe(true);
+    expect(isValidYMD("2026-01-01")).toBe(true);
+    expect(isValidYMD("2026-12-31")).toBe(true);
+  });
+
+  it("rejects malformed strings outright", () => {
+    expect(isValidYMD("")).toBe(false);
+    expect(isValidYMD("not-a-date")).toBe(false);
+    expect(isValidYMD("2026-7-20")).toBe(false); // not zero-padded
+    expect(isValidYMD("2026/07/20")).toBe(false);
+  });
+
+  it("rejects out-of-range components Date would otherwise silently roll over", () => {
+    expect(isValidYMD("2026-02-30")).toBe(false); // February never has a 30th
+    expect(isValidYMD("2026-13-01")).toBe(false); // no month 13
+    expect(isValidYMD("2026-00-10")).toBe(false); // no month 0
+  });
+
+  it("rejects non-string input from a URLSearchParams miss", () => {
+    expect(isValidYMD(null)).toBe(false);
+    expect(isValidYMD(undefined)).toBe(false);
   });
 });
 

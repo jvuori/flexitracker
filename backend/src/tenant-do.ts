@@ -495,6 +495,20 @@ export class TenantDO extends DurableObject<Env> {
     return this.getWeek(start, ledger, now);
   }
 
+  /** Week containing an absolute calendar date (`YYYY-MM-DD`), for deep-linked
+   *  week URLs — unlike `weekView`'s offset, this identifies the same week
+   *  regardless of when it's resolved. Anchored at UTC noon of that date
+   *  (not midnight) before resolving, the same nudge-to-noon technique
+   *  `addLocalDays` uses via its internal `offsetCorrection`, so the
+   *  timezone conversion cannot roll the date into a neighboring calendar
+   *  day. */
+  weekViewForDate(dateYMD: string, ledger: Ledger = "work", now = Date.now()): Promise<WeekResultWithActivity> {
+    const s = this.getSettings();
+    const parts = dateYMD.split("-").map(Number);
+    const anchor = Date.UTC(parts[0]!, parts[1]! - 1, parts[2]!, 12);
+    return this.getWeek(localWeekStart(anchor, s.timezone), ledger, now);
+  }
+
   listMachines(): {
     machine_id: string;
     hostname: string | null;

@@ -187,6 +187,20 @@ async function run() {
   check("Monday gross = 5h (long gap not bridged)", mon.grossMs === 5 * H, `got ${mon.grossMs / H}h`);
   check("one reviewable gap surfaced", mon.reviewableGaps.length === 1);
 
+  // Deep-linked week: ?date= (an absolute calendar date, account tz — UTC for
+  // this fresh account) must resolve to the SAME week as the equivalent
+  // ?offset=0, so a bookmarked week URL shows what it named.
+  {
+    const mondayYMD = new Date(monday).toISOString().slice(0, 10);
+    const byOffset = await j("/api/week?offset=0");
+    const byDate = await j(`/api/week?date=${mondayYMD}`);
+    check("?date= resolves the same weekStart as ?offset=0", byDate.weekStart === byOffset.weekStart);
+    // Any day within the week, not just its Monday, resolves the same week.
+    const midWeekYMD = new Date(monday + 3 * 86400_000).toISOString().slice(0, 10);
+    const byMidWeekDate = await j(`/api/week?date=${midWeekYMD}`);
+    check("?date= mid-week resolves the same week as its Monday", byMidWeekDate.weekStart === byOffset.weekStart);
+  }
+
   const corr = await j("/api/corrections", {
     method: "POST",
     body: JSON.stringify({ kind: "add_work", start: at(10), end: at(13) }),

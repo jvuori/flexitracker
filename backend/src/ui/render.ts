@@ -426,15 +426,89 @@ ${CLASSIFY_HELPERS_SRC}
 ${DATE_HELPERS_SRC}
 
 const tabs=document.getElementById('tabs');
-tabs.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
- for(const x of tabs.children)x.classList.toggle('active',x===b);TABS[b.dataset.tab]();});
+const KNOWN_TABS=['week','settings','machines','admin'];
 
-let weekOffset=0;
+// ---- URL state ------------------------------------------------------------
+// The URL is the source of truth for which "place" is showing, so reload,
+// Back/Forward, and bookmarks all work. State lives in these globals during
+// the session (as it always did) but is now read from location.search on
+// load/popstate and written back on navigation — see urlFor()/pushURL()/
+// replaceURL() below. weekDate/day are 'YYYY-MM-DD' strings, not timestamps,
+// so they round-trip through the URL and through localYMD() without a
+// separate parsed/serialized representation.
+let currentTab='week';
+// The displayed week's Monday, or null to mean "the current week" (resolved
+// server-side via ?offset=0 rather than a date the client would have to know
+// the account timezone to compute) — see weekIsCurrent below.
+let weekDate=null;
+// Whether weekDate (once resolved) is the week containing "now" — mirrors
+// each day lane's own isToday check, just at week granularity. Default state
+// omits week= from the URL and disables the "Today" button.
+let weekIsCurrent=true;
 // Which ledger the week view shows — persists across week navigation within
-// the session (like weekOffset), resets on a full page reload.
+// the session (like weekDate), resets on a full page reload unless the URL
+// names a non-default ledger.
 let ledgerMode='work';
+// The expanded day's calendar date ('YYYY-MM-DD'), or null. Re-validated
+// against the loaded week's actual days on every TABS.week() — a stale link
+// to a day outside the linked week silently collapses rather than erroring.
+let openDay=null;
+let selPeriod=null; // {dayStart, idx} — the currently selected period, if any.
+// Deliberately NOT reflected in the URL (see design.md): transient, and its
+// idx-into-a-recomputed-array identity isn't a stable URL citizen anyway.
+let adminAccountId=null; // Admin tab's open account-Keys drilldown, or null.
+
+// Build the URL for the current state, omitting every param at its default so
+// a plain '/' keeps meaning exactly what it always has.
+function urlFor(){
+ const p=new URLSearchParams();
+ if(currentTab!=='week')p.set('tab',currentTab);
+ if(!weekIsCurrent&&weekDate)p.set('week',weekDate);
+ if(ledgerMode!=='work')p.set('ledger',ledgerMode);
+ if(openDay)p.set('day',openDay);
+ if(currentTab==='admin'&&adminAccountId)p.set('account',adminAccountId);
+ const q=p.toString();
+ return location.pathname+(q?('?'+q):'');
+}
+// pushState for real navigation (new Back-stop): tab switches, week
+// prev/next/today, admin drilldown open. replaceState for refinements that
+// should persist in the URL without being individually Back-able: ledger
+// toggle, day expand/collapse, admin drilldown close, and the reconciliation
+// TABS.week() does once a fetch resolves (e.g. correcting weekIsCurrent, or
+// dropping a day= that turned out not to belong to the loaded week).
+function pushURL(){const u=urlFor();if(u!==location.pathname+location.search)history.pushState(null,'',u);}
+function replaceURL(){const u=urlFor();if(u!==location.pathname+location.search)history.replaceState(null,'',u);}
+
+// The single "render whatever the URL says" path — used on first load and on
+// every Back/Forward (popstate), so there is exactly one place that turns a
+// URL into a rendered view.
+function applyFromURL(){
+ const p=new URLSearchParams(location.search);
+ const tab=p.get('tab');
+ currentTab=KNOWN_TABS.includes(tab)?tab:'week';
+ const wd=p.get('week');
+ weekDate=isValidYMD(wd)?wd:null;
+ weekIsCurrent=weekDate===null;
+ ledgerMode=p.get('ledger')==='personal'?'personal':'work';
+ const dy=p.get('day');
+ openDay=isValidYMD(dy)?dy:null; // re-checked against the loaded week's days once it arrives
+ adminAccountId=p.get('account')||null; // re-checked against the account list once it arrives
+ selPeriod=null;
+ for(const x of tabs.children)x.classList.toggle('active',x.dataset.tab===currentTab);
+ TABS[currentTab]();
+}
+
+tabs.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+ currentTab=b.dataset.tab;
+ if(currentTab!=='admin')adminAccountId=null;
+ for(const x of tabs.children)x.classList.toggle('active',x===b);
+ pushURL();
+ TABS[currentTab]();});
+
 const TABS={
- async week(){view.textContent='Loading…';let [st,s,wk]=await Promise.all([api('/status'),api('/settings'),api('/week?offset='+weekOffset+'&ledger='+ledgerMode)]);
+ async week(){view.textContent='Loading…';
+  const q=weekDate?('date='+weekDate):'offset=0';
+  let [st,s,wk]=await Promise.all([api('/status'),api('/settings'),api('/week?'+q+'&ledger='+ledgerMode)]);
   TZ=s.timezone;OFFICE={start:s.workdayStartMin,end:s.workdayEndMin};PLTSEC=s.privateLeaveThresholdSec;
   // The toggle (and thus which ledger is selectable) is derived from which
   // ledgers currently have a machine assigned — status is the source of that
@@ -443,16 +517,21 @@ const TABS={
   // to whichever ledger does and re-fetch that week.
   if(!(st.work&&st.personal)){
    const forced=st.personal?'personal':'work';
-   if(forced!==ledgerMode){ledgerMode=forced;wk=await api('/week?offset='+weekOffset+'&ledger='+ledgerMode);}
+   if(forced!==ledgerMode){ledgerMode=forced;wk=await api('/week?'+q+'&ledger='+ledgerMode);}
   }
+  weekDate=localYMD(TZ,wk.weekStart);
+  const now=Date.now();
+  weekIsCurrent=now>=wk.weekStart&&now<wk.weekStart+7*86400000;
+  // A day= from a restored/shared URL that doesn't belong to THIS week (a
+  // stale link, or a week/day pair that was never consistent) collapses
+  // silently rather than mis-expanding or erroring.
+  if(openDay!==null&&!wk.days.some(d=>localYMD(TZ,d.dayStart)===openDay))openDay=null;
+  replaceURL();
   renderWeek(st,wk);},
  async settings(){renderSettings(await api('/settings'));},
  async machines(){renderMachines(await api('/machines'));},
- async admin(){renderAdmin();},
+ async admin(){await renderAdmin(adminAccountId);},
 };
-
-let openDay=null;
-let selPeriod=null; // {dayStart, idx} — the currently selected period, if any.
 function dayFmt(ts){return new Intl.DateTimeFormat(undefined,{timeZone:TZ,day:'2-digit',month:'short',year:'numeric'}).format(ts);}
 // localYMD/isoWeekNumber come from DATE_HELPERS_SRC above (they take the
 // timezone as an explicit argument rather than closing over TZ, unlike
@@ -501,7 +580,7 @@ function renderWeek(st,wk){
  const endTs=wk.days[wk.days.length-1].dayStart;
  const nav=el('<div class="row"><button class="act" id="prev">← prev</button>'+
    '<div class="big">Week '+weekNumberOf(wk.weekStart)+' · '+dayFmt(wk.weekStart)+' – '+dayFmt(endTs)+'</div>'+
-   '<button class="act" id="today"'+(weekOffset===0?' disabled':'')+'>Today</button>'+
+   '<button class="act" id="today"'+(weekIsCurrent?' disabled':'')+'>Today</button>'+
    '<button class="act" id="next">next →</button></div>');
  view.append(nav);
  // Work mode shows the full norm/lunch/balance summary; personal mode is
@@ -517,9 +596,9 @@ function renderWeek(st,wk){
   view.append(el('<div class="summary">'+stat('Activity',hm(wk.weeklyWorkedMs))+'</div>'));
  }
  wk.days.forEach((d,i)=>view.append(dayLane(d,i,now)));
- document.getElementById('prev').onclick=()=>{weekOffset--;openDay=null;TABS.week();};
- document.getElementById('today').onclick=()=>{weekOffset=0;openDay=null;TABS.week();};
- document.getElementById('next').onclick=()=>{weekOffset++;openDay=null;TABS.week();};
+ document.getElementById('prev').onclick=()=>{weekDate=addDaysYMD(weekDate,-7);openDay=null;pushURL();TABS.week();};
+ document.getElementById('today').onclick=()=>{weekDate=null;openDay=null;pushURL();TABS.week();};
+ document.getElementById('next').onclick=()=>{weekDate=addDaysYMD(weekDate,7);openDay=null;pushURL();TABS.week();};
 }
 
 
@@ -668,7 +747,7 @@ function dayLane(d,i,now){
      (d.workedMs>0?'<span class="report" title="'+dec30(d.workedMs)+' hours — the value to report" aria-label="'+dec30(d.workedMs)+' hours to report"><span class="approx">~</span>'+dec30(d.workedMs)+'h</span>':'')+
      '<span class="bal '+balCls+'">'+balTxt+'</span>')
    :'<span class="worked">'+hm(d.workedMs)+'</span>';
- const lane=el('<div class="lane'+(isToday?' today':'')+(zeroNorm?' off':'')+(isWork&&d.isHoliday?' holiday':'')+(d.dayStart===openDay?' open':'')+'">'+
+ const lane=el('<div class="lane'+(isToday?' today':'')+(zeroNorm?' off':'')+(isWork&&d.isHoliday?' holiday':'')+(localYMD(TZ,d.dayStart)===openDay?' open':'')+'">'+
    '<div class="lane-head">'+
    '<div class="dl"><b><span class="chev">▶</span>'+DAYNAMES[i]+'</b><span class="date">'+dayFmt(d.dayStart)+tag+'</span></div>'+
    '<div class="tl"><div class="track"'+bandStyle()+'>'+bars+'</div><div class="hours">'+hrs+'</div></div>'+
@@ -701,13 +780,13 @@ function dayLane(d,i,now){
  };
  lane.__select=select;
  lane.querySelector('.tl').addEventListener('click',e=>{
-  if(!lane.classList.contains('open')){lane.classList.add('open');openDay=d.dayStart;}
+  if(!lane.classList.contains('open')){lane.classList.add('open');openDay=localYMD(TZ,d.dayStart);replaceURL();}
   const r=track.getBoundingClientRect();const frac=(e.clientX-r.left)/r.width;
   const ts=d.dayStart+Math.max(0,Math.min(0.999999,frac))*DAY;
   const idx=d.periods.findIndex(p=>p.start<=ts&&p.end>ts);
   select(idx<0?d.periods.length-1:idx);
  });
- lane.querySelector('.dl').addEventListener('click',()=>{openDay=lane.classList.toggle('open')?d.dayStart:null;});
+ lane.querySelector('.dl').addEventListener('click',()=>{openDay=lane.classList.toggle('open')?localYMD(TZ,d.dayStart):null;replaceURL();});
  // Re-apply a selection that survived a same-day reload.
  if(selPeriod&&selPeriod.dayStart===d.dayStart&&selPeriod.idx<d.periods.length)select(selPeriod.idx);
  return lane;
@@ -788,7 +867,9 @@ function uncountedNote(d,isWork){
  const p=el('<p class="note">'+what+' — not counted, over your '+
    '<button class="lnk">'+hm(PLTSEC*1000)+' break limit</button>.</p>');
  p.querySelector('.lnk').onclick=()=>{
+  currentTab='settings';
   for(const x of tabs.children)x.classList.toggle('active',x.dataset.tab==='settings');
+  pushURL();
   TABS.settings();
  };
  return p;
@@ -901,7 +982,7 @@ function advanced(lane,d){
 }
 // Re-fetch and re-render the week in place; dayLane reopens the expanded day.
 // Selection is dropped — the partition changes after any correction.
-async function reload(){selPeriod=null;const [st,wk]=await Promise.all([api('/status'),api('/week?offset='+weekOffset+'&ledger='+ledgerMode)]);renderWeek(st,wk);}
+async function reload(){selPeriod=null;const q=weekDate?('date='+weekDate):'offset=0';const [st,wk]=await Promise.all([api('/status'),api('/week?'+q+'&ledger='+ledgerMode)]);renderWeek(st,wk);}
 
 function opt(value,text){const o=document.createElement('option');o.value=value;o.textContent=text;return o;}
 
@@ -1115,9 +1196,18 @@ function renderMachines(m){
  view.append(t);
 }
 
-async function renderAdmin(){
- view.innerHTML='<h2>Admin</h2>';
+// deepId: an account id to open straight to its Keys drilldown (from a
+// restored URL) — falls back to the plain list, correcting the URL, if the
+// id doesn't resolve to any current account (deleted, or simply never
+// existed — a stale/hand-edited link).
+async function renderAdmin(deepId){
  const [regs,users,audit]=await Promise.all([api('/admin/registrations'),api('/admin/users'),api('/admin/audit')]);
+ if(deepId){
+  const match=users.find(u=>u.account_id===deepId);
+  if(match){renderAdminKeys(match);return;}
+  adminAccountId=null;replaceURL();
+ }
+ view.innerHTML='<h2>Admin</h2>';
 
  // Pending registration requests: approve or reject.
  view.append(el('<h3>Access requests'+(regs.length?' ('+regs.length+')':'')+'</h3>'));
@@ -1145,7 +1235,7 @@ async function renderAdmin(){
     '<td class="muted">'+a.machine_count+'</td>'+
     '<td class="muted">'+new Date(a.created_at).toLocaleDateString()+'</td><td></td></tr>');
   const cell=tr.lastChild;
-  const keysb=el('<button class="act">Keys</button>');keysb.onclick=()=>renderAdminKeys(a);cell.append(keysb);
+  const keysb=el('<button class="act">Keys</button>');keysb.onclick=()=>{adminAccountId=a.account_id;pushURL();renderAdminKeys(a);};cell.append(keysb);
   const isSelf=a.account_id===S.accountId;
   if(a.status==='active'&&!isSelf){
    const d=el('<button class="act" style="margin-left:.35rem">Disable</button>');
@@ -1179,7 +1269,10 @@ async function renderAdminKeys(a){
   t.append(tr);
  }
  view.append(t);
- document.getElementById('back').onclick=()=>TABS.admin();
+ // replaceState, not TABS.admin()'s usual pushState path: opening this
+ // drilldown already pushed a Back-stop, so returning to the list here must
+ // land on that same entry rather than push a duplicate one alongside it.
+ document.getElementById('back').onclick=()=>{adminAccountId=null;replaceURL();TABS.admin();};
 }
 
 // ---- registration gate: shown until an admin has approved the account -------
@@ -1218,7 +1311,8 @@ function renderGate(){
 function init(){
  if(S.status!=='active'){renderGate();return;}
  if(S.admin){for(const el of document.querySelectorAll('.admin-only')){el.hidden=false;}}
- TABS.week();
+ window.addEventListener('popstate',applyFromURL);
+ applyFromURL();
 }
 init();
 `;

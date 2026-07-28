@@ -50,6 +50,25 @@ function isoWeekNumber(y,m,d){
  firstThursday.setUTCDate(firstThursday.getUTCDate()-firstDayNum+3);
  return 1+Math.round((date.getTime()-firstThursday.getTime())/(7*86400000));
 }
+
+// Shift a 'YYYY-MM-DD' calendar date string by n days (+/-). Pure calendar-day
+// arithmetic anchored in UTC purely as a neutral clock — no timezone
+// conversion is involved (unlike localDayStart/localWeekStart on the
+// backend), since a "date + N calendar days" never depends on where the
+// viewer is; the deep-linked week/day URL params (week=, day=) are dates,
+// not instants.
+function addDaysYMD(ymd,n){
+ const p=ymd.split('-').map(Number);
+ const dt=new Date(Date.UTC(p[0],p[1]-1,p[2]+n));
+ return dt.getUTCFullYear()+'-'+String(dt.getUTCMonth()+1).padStart(2,'0')+'-'+String(dt.getUTCDate()).padStart(2,'0');
+}
+
+// A 'YYYY-MM-DD' string that round-trips to the same calendar date it names —
+// rejects malformed input and out-of-range components (e.g. '2026-02-30')
+// that Date would otherwise silently roll over into a different date.
+function isValidYMD(s){
+ return typeof s==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(s)&&addDaysYMD(s,0)===s;
+}
 `;
 
 // Pure helpers for the machine-activity-lanes feature (raw per-machine lanes

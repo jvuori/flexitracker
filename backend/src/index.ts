@@ -196,8 +196,16 @@ api.post("/dev/maintenance", async (c) => {
 });
 
 api.get("/week", async (c) => {
-  const offset = Number(c.req.query("offset") ?? "0");
   const ledger: Ledger = c.req.query("ledger") === "personal" ? "personal" : "work";
+  // `date` (an absolute calendar date) takes priority over `offset` when both
+  // are present — it identifies a week deep-link that must not drift with
+  // "now", unlike offset. Falls through to offset when absent or malformed,
+  // same leniency as the ledger param above.
+  const date = c.req.query("date");
+  if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return c.json(await tenant(c.env, c.get("accountId")).weekViewForDate(date, ledger));
+  }
+  const offset = Number(c.req.query("offset") ?? "0");
   return c.json(await tenant(c.env, c.get("accountId")).weekView(offset, ledger));
 });
 
