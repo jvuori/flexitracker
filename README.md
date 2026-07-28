@@ -17,6 +17,66 @@ for the full architecture, specs, and task plan.
 | `ui/`       | Node-free HTMX static assets for Cloudflare Pages. |
 | `docs/`     | Cross-cutting docs, incl. the [wire schema](./docs/wire-schema.md). |
 
+## Install the daemon (end users)
+
+The daemon is what actually runs on a work machine and reports activity. There
+are two distributions — full details, incl. Windows, live in
+[`daemon-py/install/README.md`](./daemon-py/install/README.md).
+
+### Recommended: `uv tool install` (all platforms, no admin rights, no compiler)
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh   # skip if uv is already installed
+uv tool install flexitracker
+flexitracker login    # opens a browser to authorize this machine
+flexitracker test     # connectivity check, sends no data
+```
+
+On a headless/scripted box, authorize with a key from the web app's "Add
+machine" button instead of a browser: `flexitracker login --key <ACCESS_KEY>`.
+
+**Auto-start on login, so you never have to launch it by hand:**
+
+- **Linux — systemd user service:**
+
+  ```bash
+  cd daemon-py/install
+  ./install.sh
+  ```
+
+  This installs [`flexitracker.service`](./daemon-py/install/flexitracker.service)
+  (which runs `~/.local/bin/flexitracker`, the entrypoint `uv tool install`
+  put on `PATH`) as a **user** unit and enables it:
+
+  ```bash
+  mkdir -p ~/.config/systemd/user
+  cp daemon-py/install/flexitracker.service ~/.config/systemd/user/
+  systemctl --user daemon-reload
+  systemctl --user enable --now flexitracker.service
+  ```
+
+  Check status/logs with `systemctl --user status flexitracker` /
+  `journalctl --user -u flexitracker -f`. If the machine doesn't keep a
+  session open past logout, run `loginctl enable-linger "$USER"` once so the
+  user service can still start.
+
+- **Windows — Scheduled Task at logon:**
+
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File daemon-py/install/install.ps1
+  ```
+
+  Registers a hidden Scheduled Task (`FlexiTracker`) that starts the daemon at
+  sign-in — Windows has no systemd equivalent, so a login task is the
+  closest match.
+
+### Alternative: standalone executable (machines that permit running exes)
+
+Download `flexitracker` / `flexitracker.exe` from the project's GitHub
+**Releases** page — it bundles its own Python runtime, no `uv` needed. Windows
+SmartScreen may warn since it's unsigned (**More info → Run anyway**); if your
+org blocks unsigned executables outright, use the `uv` path above instead.
+
 ## Develop
 
 Backend (Node 20+ recommended for the latest wrangler):
