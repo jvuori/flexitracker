@@ -1,11 +1,21 @@
 # FlexiTracker daemon (Python)
 
-The FlexiTracker activity daemon: a pure-Python program that captures idle/active
-transitions and ships back-dated events to the backend. Pure stdlib, no compiled
-extension, so it installs with `uv` into a user profile — no admin rights and no
-compiler — which is what lets it run on managed machines that block unsigned
-executables. OS idle detection is done through `ctypes` (Windows
-`GetLastInputInfo`, Linux XScreenSaver).
+The client half of [FlexiTracker](https://github.com/jvuori/flexitracker), a
+flextime/saldo tracker: a pure-Python daemon that runs in the background on
+your machine, watches only when you're active vs. idle (input timing and
+screen-lock state — never keystrokes, window titles, or screenshots), and
+**sends those timestamps over the network to the FlexiTracker cloud service**,
+which turns them into trustworthy per-week working-time numbers in a web app.
+This is not an offline/local-only tool — installing and running this package
+means your activity data leaves the machine it's installed on. See the
+[project README](https://github.com/jvuori/flexitracker#readme) for the full
+picture, or self-host the backend if you'd rather not send data to someone
+else's server.
+
+Pure stdlib, no compiled extension, so it installs with `uv` into a user
+profile — no admin rights and no compiler — which is what lets it run on
+managed machines that block unsigned executables. OS idle detection is done
+through `ctypes` (Windows `GetLastInputInfo`, Linux XScreenSaver).
 
 ## Install
 

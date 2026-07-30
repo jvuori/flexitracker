@@ -8,11 +8,32 @@ description = "FlexiTracker activity daemon — pure-Python."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Jaakko Vuori", email = "jaakko.vuori@gmail.com" }]
+keywords = ["time-tracking", "flextime", "activity-monitor", "idle-detection", "daemon"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: No Input/Output (Daemon)",
+  "Intended Audience :: End Users/Desktop",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Office/Business",
+]
 # Pure-Python, near-stdlib on purpose: no compiled extension so `uv tool install`
 # needs no C toolchain and no admin rights (see openspec/specs/daemon-parity).
 # OS idle/lock detection uses ctypes (stdlib); HTTP uses urllib (stdlib);
 # TOML read uses tomllib (stdlib, 3.11+); TOML write is a tiny local emitter.
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/jvuori/flexitracker"
+Source = "https://github.com/jvuori/flexitracker"
+Issues = "https://github.com/jvuori/flexitracker/issues"
+Changelog = "https://github.com/jvuori/flexitracker/releases"
 
 [project.scripts]
 flexitracker = "flexitracker.cli:main"

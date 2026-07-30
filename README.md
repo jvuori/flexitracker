@@ -1,8 +1,28 @@
 # FlexiTracker
 
-Personal flextime/saldo tracker. A minimal Python daemon captures computer
-activity; a serverless Cloudflare backend turns it into trustworthy per-week
-working-time numbers to transcribe into an official time system.
+FlexiTracker turns "was I actually working" into a trustworthy weekly number,
+without manually punching a clock. It's two pieces working together:
+
+- **A small daemon** (published as the `flexitracker` PyPI package) runs in
+  the background on your work machine and watches *only* when you're active
+  vs. idle — input timing and
+  screen-lock state. It never reads keystrokes, window titles, clipboard
+  content, or screenshots (see [`docs/wire-schema.md`](./docs/wire-schema.md)
+  for the exact, tiny payload it sends).
+- **A cloud service** (a serverless backend on Cloudflare) receives those
+  active/idle timestamps, bridges small gaps, applies your configured office
+  hours/norms, and turns the result into per-week working-time numbers you
+  review — and, if needed, correct — in a web app before transcribing them into
+  your employer's official time system.
+
+**This is not an offline tool.** Installing the `flexitracker` package
+(`pip install` / `uv tool install`) and running it starts a daemon that
+continuously sends your activity timestamps over the network to FlexiTracker's
+cloud backend, where they're stored under your account. If you'd rather not
+send data to someone else's server, `backend/` is a self-contained Cloudflare
+Worker you can fork and deploy to your own (free-tier) Cloudflare account, then
+point the daemon at it with `flexitracker login --backend-url <your-url>`
+instead of the default.
 
 See [`CLAUDE.md`](./CLAUDE.md) for the operating rules (chief among them: **zero
 cost, forever**) and [`openspec/changes/flexitracker/`](./openspec/changes/flexitracker/)
