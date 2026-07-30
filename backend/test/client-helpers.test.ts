@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DATE_HELPERS_SRC, LANE_HELPERS_SRC, TIME_HELPERS_SRC } from "../src/ui/client-helpers";
+import { AUTOSTART_HELPERS_SRC, DATE_HELPERS_SRC, LANE_HELPERS_SRC, TIME_HELPERS_SRC } from "../src/ui/client-helpers";
 
 // The browser client is a plain string, so these helpers are defined as source
 // and inlined into it. Evaluating that same source here means the tests
@@ -296,5 +296,41 @@ describe("markRawProvisional", () => {
     markRawProvisional(segs, [{ start: at(9), end: at(10), growing: false, lastAlive: at(10) }]);
     const gaps = segs.filter((s) => s.type === "gap") as { provisional?: boolean }[];
     expect(gaps.every((g) => g.provisional === undefined)).toBe(true);
+  });
+});
+
+const { autostartCommand } = new Function(`${AUTOSTART_HELPERS_SRC}; return { autostartCommand };`)() as {
+  autostartCommand: (os: string) => string | null;
+};
+
+describe("autostartCommand — the Machines tab's per-OS auto-start command", () => {
+  it("gives Windows a single-line HKCU Run-key command pointed at the windowless launcher", () => {
+    const cmd = autostartCommand("windows");
+    expect(cmd).toContain('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"');
+    expect(cmd).toContain("flexitracker-daemon.exe");
+    expect(cmd).not.toContain("\n"); // one line, safe to paste into cmd.exe as-is
+  });
+
+  it("gives Linux the systemd user-service enable sequence, one command per line", () => {
+    const cmd = autostartCommand("linux");
+    expect(cmd).toContain("systemctl --user enable --now flexitracker.service");
+    expect(cmd?.split("\n")).toEqual([
+      "mkdir -p ~/.config/systemd/user",
+      "cp flexitracker.service ~/.config/systemd/user/",
+      "systemctl --user daemon-reload",
+      "systemctl --user enable --now flexitracker.service",
+    ]);
+  });
+
+  it("returns null for an OS with no daemon build (mac) or an undetected one", () => {
+    expect(autostartCommand("mac")).toBeNull();
+    expect(autostartCommand("other")).toBeNull();
+  });
+
+  it("never returns an installer script — no .ps1/.vbs/.sh reference in either command", () => {
+    for (const os of ["windows", "linux"]) {
+      const cmd = autostartCommand(os) ?? "";
+      expect(cmd).not.toMatch(/\.(ps1|vbs|sh)\b/);
+    }
   });
 });

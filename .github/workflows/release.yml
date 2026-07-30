@@ -141,3 +141,32 @@ jobs:
           tag_name: ${{ github.event.inputs.tag || github.event.release.tag_name }}
           files: daemon-py/dist/${{ matrix.asset }}
           fail_on_unmatched_files: false
+      # Windows only: a second, windowed-subsystem (no console ever) build for
+      # the auto-started background daemon, so auto-start never flashes a
+      # console window. The console build above stays the one to use for
+      # `login`/`test` (interactive, needs to print to the user's terminal).
+      # Linux doesn't need this — a systemd user service already runs detached
+      # with no controlling terminal to begin with.
+      - name: Freeze windowed executable (Windows only, for silent auto-start)
+        if: runner.os == 'Windows'
+        working-directory: daemon-py
+        shell: bash
+        run: |
+          uv run pyinstaller --onefile --name flexitracker-daemon --paths src --windowed \
+            --copy-metadata flexitracker \
+            --exclude-module tkinter --exclude-module unittest --exclude-module test \
+            --exclude-module pydoc --exclude-module lib2to3 --exclude-module sqlite3 \
+            --exclude-module distutils --exclude-module xmlrpc --exclude-module pdb \
+            pyinstaller_entry.py
+      - name: Rename windowed executable to its stable asset name (Windows only)
+        if: runner.os == 'Windows'
+        shell: bash
+        working-directory: daemon-py
+        run: mv dist/flexitracker-daemon.exe dist/flexitracker-daemon-windows-x86_64.exe
+      - name: Attach windowed executable to the GitHub Release (Windows only)
+        if: runner.os == 'Windows'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.event.release.tag_name }}
+          files: daemon-py/dist/flexitracker-daemon-windows-x86_64.exe
+          fail_on_unmatched_files: false

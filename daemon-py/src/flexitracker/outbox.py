@@ -9,9 +9,14 @@ either implementation can resume the other's outbox (proven by the harness).
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Optional
+
+from .logging_setup import LOGGER_NAME
+
+logger = logging.getLogger(LOGGER_NAME)
 
 # Events older than the backend's edit window are rejected on arrival; holding
 # them only grows the file.
@@ -49,7 +54,7 @@ class Outbox:
             except OSError:
                 pass
             extra = f" (previous contents kept at {aside})" if moved else ""
-            print(f"warning: outbox unreadable ({e}); starting with an empty queue{extra}")
+            logger.warning("outbox unreadable (%s); starting with an empty queue%s", e, extra)
             return cls(path, 0, [], None)
         return cls(
             path,

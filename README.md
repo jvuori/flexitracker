@@ -35,18 +35,13 @@ flexitracker test     # connectivity check, sends no data
 On a headless/scripted box, authorize with a key from the web app's "Add
 machine" button instead of a browser: `flexitracker login --key <ACCESS_KEY>`.
 
-**Auto-start on login, so you never have to launch it by hand:**
+**Auto-start on login, so you never have to launch it by hand:** every step
+below is a single command you run and can read before pasting — no installer
+script (PowerShell, VBScript, or shell) is ever downloaded and run on your
+behalf. The same commands, matched to your detected OS, also render inline on
+the web app's Machines tab.
 
 - **Linux — systemd user service:**
-
-  ```bash
-  cd daemon-py/install
-  ./install.sh
-  ```
-
-  This installs [`flexitracker.service`](./daemon-py/install/flexitracker.service)
-  (which runs `~/.local/bin/flexitracker`, the entrypoint `uv tool install`
-  put on `PATH`) as a **user** unit and enables it:
 
   ```bash
   mkdir -p ~/.config/systemd/user
@@ -55,27 +50,36 @@ machine" button instead of a browser: `flexitracker login --key <ACCESS_KEY>`.
   systemctl --user enable --now flexitracker.service
   ```
 
-  Check status/logs with `systemctl --user status flexitracker` /
+  This runs `~/.local/bin/flexitracker`, the entrypoint `uv tool install` put
+  on `PATH`, as a **user** unit. Check status/logs with
+  `systemctl --user status flexitracker` /
   `journalctl --user -u flexitracker -f`. If the machine doesn't keep a
   session open past logout, run `loginctl enable-linger "$USER"` once so the
   user service can still start.
 
-- **Windows — Scheduled Task at logon:**
+- **Windows — a registry Run-key command:**
 
-  ```powershell
-  powershell -ExecutionPolicy Bypass -File daemon-py/install/install.ps1
+  ```
+  reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v FlexiTracker /t REG_SZ /d "\"%USERPROFILE%\.local\bin\flexitracker-daemon.exe\"" /f
   ```
 
-  Registers a hidden Scheduled Task (`FlexiTracker`) that starts the daemon at
-  sign-in — Windows has no systemd equivalent, so a login task is the
-  closest match.
+  `uv tool install` places two commands on `PATH`: the console `flexitracker`
+  used above for `login`/`test`, and a second, windowless `flexitracker-daemon`
+  command this points at — it runs the same daemon with no console window, ever.
+  No admin rights needed (it only touches your own user's registry). To undo:
+  `reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v FlexiTracker /f`.
 
-### Alternative: standalone executable (machines that permit running exes)
+### Alternative: standalone executables (machines that permit running exes)
 
-Download `flexitracker` / `flexitracker.exe` from the project's GitHub
-**Releases** page — it bundles its own Python runtime, no `uv` needed. Windows
-SmartScreen may warn since it's unsigned (**More info → Run anyway**); if your
-org blocks unsigned executables outright, use the `uv` path above instead.
+Download from the project's GitHub **Releases** page — it bundles its own
+Python runtime, no `uv` needed. Windows ships **two** executables:
+`flexitracker-windows-x86_64.exe` (console, for `login`/`test`) and
+`flexitracker-daemon-windows-x86_64.exe` (windowless, for auto-start — same
+`reg add` command as above, pointed at wherever you saved it). Linux has one,
+`flexitracker-linux-x86_64`, used for everything. Windows SmartScreen may warn
+since they're unsigned (**More info → Run anyway**); if your org blocks
+unsigned executables outright, use the `uv` path above instead. Full details:
+[`daemon-py/install/README.md`](./daemon-py/install/README.md).
 
 ## Develop
 

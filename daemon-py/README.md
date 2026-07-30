@@ -15,10 +15,12 @@ Recommended (all platforms):
 uv tool install flexitracker
 ```
 
-Or, on a machine that allows executables, download the standalone
-`flexitracker` / `flexitracker.exe` from the GitHub **Releases** page (it bundles
-its own Python runtime). See `install/README.md` for per-OS auto-start and the
-Windows SmartScreen trust step.
+Or, on a machine that allows executables, download the standalone build from
+the GitHub **Releases** page (it bundles its own Python runtime): one binary
+on Linux, or on Windows two — a console one for `login`/`test` and a
+windowless one for auto-start. See `install/README.md` for per-OS auto-start
+(a single copy-pasteable command, no installer script) and the Windows
+SmartScreen trust step.
 
 ## Use
 

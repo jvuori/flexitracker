@@ -1,5 +1,11 @@
 import type { Identity } from "../identity";
-import { CLASSIFY_HELPERS_SRC, DATE_HELPERS_SRC, LANE_HELPERS_SRC, TIME_HELPERS_SRC } from "./client-helpers";
+import {
+  AUTOSTART_HELPERS_SRC,
+  CLASSIFY_HELPERS_SRC,
+  DATE_HELPERS_SRC,
+  LANE_HELPERS_SRC,
+  TIME_HELPERS_SRC,
+} from "./client-helpers";
 
 /**
  * Node-free UI: a single self-contained HTML page with inline CSS (responsive,
@@ -394,7 +400,7 @@ const DAYNAMES=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 // The recommended install is "uv tool install flexitracker"; these are the
 // bundled-Python fallback for machines that allow running executables.
 const REL='https://github.com/jvuori/flexitracker/releases/latest/download';
-const DL={win:REL+'/flexitracker-windows-x86_64.exe',linux:REL+'/flexitracker-linux-x86_64'};
+const DL={win:REL+'/flexitracker-windows-x86_64.exe',linux:REL+'/flexitracker-linux-x86_64',winDaemon:REL+'/flexitracker-daemon-windows-x86_64.exe'};
 function detectOS(){const p=((navigator.userAgentData&&navigator.userAgentData.platform)||navigator.platform||navigator.userAgent||'').toLowerCase();
  if(p.indexOf('win')>=0)return'windows';if(p.indexOf('mac')>=0)return'mac';if(p.indexOf('linux')>=0&&p.indexOf('android')<0)return'linux';return'other';}
 
@@ -424,6 +430,7 @@ ${TIME_HELPERS_SRC}
 ${LANE_HELPERS_SRC}
 ${CLASSIFY_HELPERS_SRC}
 ${DATE_HELPERS_SRC}
+${AUTOSTART_HELPERS_SRC}
 
 const tabs=document.getElementById('tabs');
 const KNOWN_TABS=['week','settings','machines','admin'];
@@ -1107,7 +1114,18 @@ function renderInstallSteps(box){
    :'<a class="act" href="'+DL.win+'">Windows .exe</a> <a class="act" href="'+DL.linux+'">Linux binary</a>';
  const install='uv tool install flexitracker';
  const login='flexitracker login';
- const copy=(btn,src,txt)=>{const b=box.querySelector(btn);b.onclick=async()=>{try{await navigator.clipboard.writeText(txt);b.textContent='Copied ✓';}catch{const r=document.createRange();r.selectNode(box.querySelector(src));getSelection().removeAllRanges();getSelection().addRange(r);}};};
+ // autostartCommand (AUTOSTART_HELPERS_SRC, spliced into this script above)
+ // is the single definition of both commands — no installer script (not
+ // PowerShell, not VBScript, not shell) is ever downloaded or run for the
+ // user; they copy-paste one command themselves.
+ const autostartCmd=autostartCommand(os);
+ const autostartBlock=os==='windows'
+   ?'<pre id="autocmd">'+escHtml(autostartCmd)+'</pre> <button class="act" id="copyauto">Copy</button>'+
+    '<p class="muted">Uses the windowless <code>flexitracker-daemon</code> command <code>uv tool install</code> also placed on <code>PATH</code> — no console window, ever. Using the standalone .exe instead? Point this same command at wherever you saved <a href="'+DL.winDaemon+'">flexitracker-daemon-windows-x86_64.exe</a>.</p>'
+   :os==='linux'
+   ?'<pre id="autocmd">'+escHtml(autostartCmd)+'</pre> <button class="act" id="copyauto">Copy</button>'+
+    '<p class="muted">Uses the <code>flexitracker.service</code> unit shipped next to the daemon\'s install docs. If the machine doesn\'t keep a session open past logout, also run <code>loginctl enable-linger "$USER"</code> once.</p>'
+   :'<p class="muted">Pick your OS above to see its auto-start command — Windows uses a registry command, Linux uses systemd.</p>';
  box.innerHTML=
   '<p><b>1. Install</b> — recommended (no admin, works where .exe is blocked):</p>'+
   '<div class="row"><code id="instcmd">'+install+'</code> <button class="act" id="copyinst">Copy</button></div>'+
@@ -1117,7 +1135,9 @@ function renderInstallSteps(box){
   '<p><b>2. Log in</b> — opens your browser to authorize; you never see or copy a key:</p>'+
   '<div class="row"><code id="logincmd">'+login+'</code> <button class="act" id="copylogin">Copy</button></div>'+
   '<p><b>3. Verify</b> — confirms connectivity, sends no time data:</p><code>flexitracker test</code>'+
-  '<p class="muted">It then auto-starts on login. Full per-OS steps (and the unsigned-app prompt): '+
+  '<p><b>4. Auto-start on login</b> — one command, no installer script (not PowerShell, not a shell script):</p>'+
+  autostartBlock+
+  '<p class="muted">Unsigned executables may trigger Windows SmartScreen on first run — click <b>More info → Run anyway</b>. Full details: '+
   '<a href="https://github.com/jvuori/flexitracker/blob/master/daemon-py/install/README.md" target="_blank" rel="noopener">install guide</a>.</p>'+
   '<details class="adv"><summary class="muted">Headless or scripted machine? Authorize with a pasted key instead</summary>'+
   '<div class="row"><input id="mlabel" placeholder="Machine label (e.g. Work laptop)"></div>'+
@@ -1129,6 +1149,7 @@ function renderInstallSteps(box){
   '<div id="manualcmd"></div></details>';
  copy('#copyinst','#instcmd',install);
  copy('#copylogin','#logincmd',login);
+ if(autostartCmd)copy('#copyauto','#autocmd',autostartCmd);
  box.querySelector('#issue').onclick=async()=>{
   const label=box.querySelector('#mlabel').value||null;
   const role=box.querySelector('input[name="mrole"]:checked').value;

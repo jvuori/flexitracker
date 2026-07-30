@@ -191,3 +191,22 @@ function classifyPlan(p,target,ledger){
  return [{op:'add',ledger:target}];
 }
 `;
+
+// Pure per-OS auto-start command lookup for the Machines tab. Same
+// "source string is the single definition" pattern as the helpers above.
+//
+// Each command is a single copy-pasteable line (Linux is several commands
+// joined by literal newlines, copied as one block) — never an installer
+// script (PowerShell, VBScript, or shell script) downloaded and run on the
+// user's behalf. Windows registers the windowless `flexitracker-daemon`
+// launcher via the current user's own HKCU Run key (no admin rights
+// needed); Linux enables the `flexitracker.service` unit shipped alongside
+// the daemon's install docs. Returns null for an OS with no daemon build
+// (or one not yet detected) — the caller falls back to a pick-your-OS hint.
+export const AUTOSTART_HELPERS_SRC = String.raw`
+function autostartCommand(os){
+ if(os==='windows')return 'reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v FlexiTracker /t REG_SZ /d "\\"%USERPROFILE%\\.local\\bin\\flexitracker-daemon.exe\\"" /f';
+ if(os==='linux')return 'mkdir -p ~/.config/systemd/user\ncp flexitracker.service ~/.config/systemd/user/\nsystemctl --user daemon-reload\nsystemctl --user enable --now flexitracker.service';
+ return null;
+}
+`;

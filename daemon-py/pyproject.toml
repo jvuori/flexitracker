@@ -17,6 +17,12 @@ dependencies = []
 [project.scripts]
 flexitracker = "flexitracker.cli:main"
 
+# Windows-subsystem launcher (no console ever) for `uv tool install`, used only
+# for the auto-started background daemon. `login`/`test` use the console
+# `flexitracker` entry point above so their output is visible.
+[project.gui-scripts]
+flexitracker-daemon = "flexitracker.cli:main"
+
 [dependency-groups]
 dev = ["pytest>=8"]
 # Freezing tool for the standalone single-file executable (GitHub Release asset,

@@ -9,6 +9,7 @@ sends no data), and the default daemon run.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import socket
 import sys
@@ -18,12 +19,16 @@ from typing import Optional
 
 from ._backend import default_backend_url
 from .config import Config
-from .core import machine_descriptor
+from .core import EventKind, machine_descriptor
 from .idle import Sample, platform_source
+from .logging_setup import LOGGER_NAME, configure_logging
 from .login import LoginError, browser_login
 from .outbox import Outbox
 from .sender import SenderError, fetch_thresholds, post_batch, whoami
 from .state_machine import Persisted, StateMachine, Tick
+from .version import get_version
+
+logger = logging.getLogger(LOGGER_NAME)
 
 HELP = """flexitracker — activity tracking daemon
 
@@ -100,8 +105,6 @@ def parse_args(argv: list) -> Args:
         elif arg == "--once":
             a.once = True
         elif arg in ("--version", "-V"):
-            from .version import get_version
-
             print(f"flexitracker {get_version()}")
             sys.exit(0)
         elif arg in ("--help", "-h"):
@@ -138,7 +141,17 @@ def flush(cfg: Config, ob: Outbox) -> None:
         post_batch(cfg.backend_url, cfg.access_key, batch)
         ob.ack()
     except SenderError as e:
-        print(f"flush deferred ({ob.pending_len()} pending): {e}", file=sys.stderr)
+        logger.warning("flush deferred (%d pending): %s", ob.pending_len(), e)
+
+
+def log_events(events: list) -> None:
+    """INFO for a work/idle span start or end; DEBUG for a heartbeat, so a
+    default-level log stays small no matter how long the daemon runs."""
+    for e in events:
+        if e["kind"] == EventKind.HEARTBEAT:
+            logger.debug("heartbeat ts=%s", e["ts"])
+        else:
+            logger.info("%s ts=%s", e["kind"], e["ts"])
 
 
 def load_state(path: Path) -> Optional[Persisted]:
@@ -253,12 +266,29 @@ def run(argv: list) -> int:
         return 1
     cfg.save(config_path)
 
+    configure_logging(config_path)
+    machine = machine_desc()
+    logger.info(
+        "flexitracker %s starting (backend=%s, config=%s)", get_version(), cfg.backend_url, config_path
+    )
+    logger.info("machine: hostname=%s os=%s", machine["hostname"], machine["os"])
+
+    try:
+        return _run_daemon(args, cfg, config_path, machine)
+    except Exception:
+        # No console to see a traceback on under the windowed/no-console build
+        # — the rotating log file is the only place this can land.
+        logger.exception("daemon loop crashed")
+        return 1
+
+
+def _run_daemon(args: Args, cfg: Config, config_path: Path, machine: dict) -> int:
     # Refresh thresholds; fall back to cached/defaults offline.
     try:
         cfg.thresholds = fetch_thresholds(cfg.backend_url, cfg.access_key, cfg.thresholds.poll_sec)
         cfg.save(config_path)
     except SenderError as e:
-        print(f"warning: using cached thresholds ({e})", file=sys.stderr)
+        logger.warning("using cached thresholds (%s)", e)
     thresholds = cfg.thresholds.to_thresholds()
 
     state_path = config_path.with_name("state.json")
@@ -266,8 +296,8 @@ def run(argv: list) -> int:
     ob = Outbox.open(outbox_path)
     dropped = ob.trim_expired(now_ms())
     if dropped > 0:
-        print(f"dropped {dropped} outbox event(s) older than the backend edit window", file=sys.stderr)
-    ob.set_machine(machine_desc())
+        logger.warning("dropped %d outbox event(s) older than the backend edit window", dropped)
+    ob.set_machine(machine)
 
     if args.simulate:
         return simulate(cfg, ob)
@@ -275,25 +305,29 @@ def run(argv: list) -> int:
     persisted = load_state(state_path) or Persisted()
     sm = StateMachine(thresholds, persisted)
 
-    ob.append(sm.recover(now_ms()))
+    recovered = sm.recover(now_ms())
+    log_events(recovered)
+    ob.append(recovered)
     save_state(state_path, sm.p)
     flush(cfg, ob)
 
     try:
         source = platform_source()
     except OSError as e:
-        print(f"error: idle source: {e}", file=sys.stderr)
+        logger.error("idle source: %s", e)
         return 1
 
     last_mono: Optional[float] = None
     while True:
         s: Sample = source.sample()
+        logger.debug("sample idle_ms=%s locked=%s", s.idle_ms, s.locked)
         mono_now = time.monotonic()
         mono_elapsed_ms = None if last_mono is None else int((mono_now - last_mono) * 1000)
         last_mono = mono_now
         events = sm.step(
             Tick(now=now_ms(), idle_ms=s.idle_ms, locked=s.locked, mono_elapsed_ms=mono_elapsed_ms)
         )
+        log_events(events)
         ob.append(events)
         save_state(state_path, sm.p)
         flush(cfg, ob)

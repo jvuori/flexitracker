@@ -1,7 +1,9 @@
+import logging
+
 import pytest
 
 from flexitracker import cli as cli_mod
-from flexitracker.cli import parse_args, run
+from flexitracker.cli import log_events, parse_args, run
 from flexitracker.config import Config
 from flexitracker.login import LoginError
 
@@ -80,3 +82,19 @@ def test_login_browser_failure_writes_no_config(tmp_path, monkeypatch):
     rc = run(["login", "--backend-url", "https://backend.example", "--config", str(config_path)])
     assert rc == 1
     assert not config_path.exists()
+
+
+def test_log_events_logs_spans_at_info_and_heartbeat_at_debug(caplog):
+    events = [
+        {"ts": 1000, "kind": "active"},
+        {"ts": 2000, "kind": "heartbeat"},
+        {"ts": 3000, "kind": "idle"},
+    ]
+    with caplog.at_level(logging.DEBUG, logger="flexitracker"):
+        log_events(events)
+    info_messages = [r.message for r in caplog.records if r.levelno == logging.INFO]
+    debug_messages = [r.message for r in caplog.records if r.levelno == logging.DEBUG]
+    assert any("active" in m for m in info_messages)
+    assert any("idle" in m for m in info_messages)
+    assert any("heartbeat" in m for m in debug_messages)
+    assert not any("heartbeat" in m for m in info_messages)
