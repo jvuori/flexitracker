@@ -211,7 +211,7 @@ main{max-width:900px;margin:0 auto;padding:1rem}
    in opposite directions: the 30px merged track sat 5 above / 9 below, the
    20px raw track 3 above / 1 below. This centres at any height, so raw lanes
    need no override at all. */
-.seg{position:absolute;top:50%;transform:translateY(-50%);height:14px;border-radius:2px;min-width:2px}
+.seg{position:absolute;top:50%;transform:translateY(-50%);height:14px;border-radius:1px;min-width:2px}
 .seg.sensor{background:var(--sensor)}
 /* A solid connecting line through the vertical middle, not a repeating
    pattern: a period only a few px wide never has room for a pattern to
@@ -263,7 +263,7 @@ main{max-width:900px;margin:0 auto;padding:1rem}
    the shorter raw lanes had no room and got shaved. It spans the full track
    height so even a min-width segment gets a legible target, and takes no
    background of its own so the segment stays fully visible through it. */
-.selbox{position:absolute;top:0;height:100%;border-radius:2px;box-shadow:inset 0 0 0 2px var(--fg);pointer-events:none;z-index:3}
+.selbox{position:absolute;top:0;height:100%;border-radius:1px;box-shadow:inset 0 0 0 2px var(--fg);pointer-events:none;z-index:3}
 .detail{display:none;margin-top:.6rem;padding-top:.6rem;border-top:1px dashed var(--line2)}
 .lane.open .detail{display:block}
 /* The period marker doubles as the receipt's swatch — the receipt defines the
