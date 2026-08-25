@@ -211,7 +211,7 @@ main{max-width:900px;margin:0 auto;padding:1rem}
    in opposite directions: the 30px merged track sat 5 above / 9 below, the
    20px raw track 3 above / 1 below. This centres at any height, so raw lanes
    need no override at all. */
-.seg{position:absolute;top:50%;transform:translateY(-50%);height:14px;border-radius:3px;min-width:2px}
+.seg{position:absolute;top:50%;transform:translateY(-50%);height:14px;border-radius:2px;min-width:2px}
 .seg.sensor{background:var(--sensor)}
 /* A solid connecting line through the vertical middle, not a repeating
    pattern: a period only a few px wide never has room for a pattern to
@@ -263,7 +263,7 @@ main{max-width:900px;margin:0 auto;padding:1rem}
    the shorter raw lanes had no room and got shaved. It spans the full track
    height so even a min-width segment gets a legible target, and takes no
    background of its own so the segment stays fully visible through it. */
-.selbox{position:absolute;top:0;height:100%;border-radius:3px;box-shadow:inset 0 0 0 2px var(--fg);pointer-events:none;z-index:3}
+.selbox{position:absolute;top:0;height:100%;border-radius:2px;box-shadow:inset 0 0 0 2px var(--fg);pointer-events:none;z-index:3}
 .detail{display:none;margin-top:.6rem;padding-top:.6rem;border-top:1px dashed var(--line2)}
 .lane.open .detail{display:block}
 /* The period marker doubles as the receipt's swatch — the receipt defines the
@@ -752,7 +752,15 @@ function dayLane(d,i,now){
  // A provisional period gets its own treatment across its WHOLE extent, not
  // just a marked tail: without a closing event it has no confirmed end at all,
  // and its extent moves as evidence arrives.
- d.periods.forEach((p,idx)=>{bars+='<div class="seg '+p.type+(p.provisional?' provisional':'')+'" data-i="'+idx+'" style="left:'+pct(p.start)+'%;width:'+(pct(p.end)-pct(p.start))+'%"></div>';});
+ // +1px on width, not on left: adjacent periods' edges are mathematically
+ // exact (same pct() call on the same shared timestamp), but the browser
+ // rounds each element's box to device pixels independently, which can leave
+ // a stray 1px seam at a boundary — its position shifts with zoom because the
+ // rounding is zoom-dependent, not a data error. Segments paint in DOM order
+ // (ascending start time), so overlapping 1px into the next period is always
+ // painted over by that period's own exact left edge — the seam can never
+ // show, at any zoom.
+ d.periods.forEach((p,idx)=>{bars+='<div class="seg '+p.type+(p.provisional?' provisional':'')+'" data-i="'+idx+'" style="left:'+pct(p.start)+'%;width:calc('+(pct(p.end)-pct(p.start))+'% + 1px)"></div>';});
  let hrs='';for(let h=0;h<=24;h++)hrs+='<span style="left:'+(h/24*100)+'%">'+h+'</span>';
  const isToday=now>=d.dayStart&&now<d.dayStart+DAY;
  const isWork=ledgerMode==='work';
@@ -963,8 +971,9 @@ function rawLanes(lane,d){
   const row=el('<div class="mlane"><div class="mlabel">'+escHtml(ma.label||'Unnamed machine')+'</div><div class="track"'+bandStyle()+'></div></div>');
   const track=row.querySelector('.track');
   segs.forEach((s,idx)=>{
+   // Same +1px overlap trick as the merged track above, for the same reason.
    track.appendChild(el('<div class="seg '+(s.type==='active'?'sensor':'gap')+(s.provisional?' provisional':'')+
-     '" data-i="'+idx+'" style="left:'+pct(s.start)+'%;width:'+(pct(s.end)-pct(s.start))+'%"></div>'));
+     '" data-i="'+idx+'" style="left:'+pct(s.start)+'%;width:calc('+(pct(s.end)-pct(s.start))+'% + 1px)"></div>'));
   });
   track.addEventListener('click',e=>{
    const r=track.getBoundingClientRect();const frac=(e.clientX-r.left)/r.width;
