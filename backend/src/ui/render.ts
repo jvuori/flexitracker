@@ -213,8 +213,15 @@ main{max-width:900px;margin:0 auto;padding:1rem}
    need no override at all. */
 .seg{position:absolute;top:50%;transform:translateY(-50%);height:14px;border-radius:3px;min-width:2px}
 .seg.sensor{background:var(--sensor)}
-.seg.auto_bridged{background-color:var(--sensor-soft);
- background-image:repeating-linear-gradient(135deg,var(--sensor) 0 3px,transparent 3px 7px)}
+/* A solid connecting line through the vertical middle, not a repeating
+   pattern: a period only a few px wide never has room for a pattern to
+   repeat legibly, but a plain vertical gradient band is exact at any width,
+   including the 2px minimum. Reads as the bridge tethering the sensor
+   spans on either side together. Above/below the line is transparent
+   (the plain track background shows through), so only the line itself
+   carries the "inferred, not measured" distinction from full-strength
+   --sensor. */
+.seg.auto_bridged{background-image:linear-gradient(transparent 0 3px,var(--sensor) 3px 11px,transparent 11px 100%)}
 .seg.manual_added{background:var(--sensor);border-bottom:3px solid var(--accent)}
 /* review renders exactly as gap: the band behind it already says "in hours"
    and the bare fill already says "not counted". */
@@ -245,12 +252,18 @@ main{max-width:900px;margin:0 auto;padding:1rem}
 .mlane{display:grid;grid-template-columns:96px 1fr 118px;gap:.6rem;align-items:center;margin:.25rem 0}
 .mlabel{font-size:.72rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mlane .track{height:20px;cursor:pointer}
-/* Selection fills the track, so it opts out of the centring above, and rings
-   itself INWARD: the old outline painted outside the box inside an
-   overflow:hidden track, which on the shorter raw lanes had no room and got
-   shaved. Filling the height also keeps a segment at min-width legible, which
-   an inward ring alone would not. */
-.seg.sel{top:0;height:100%;transform:none;outline:2px solid var(--fg);outline-offset:-2px;border-radius:3px;z-index:3}
+/* Selection is a separate overlay, never a restyle of the segment: earlier
+   this reused the segment's own box (stretched to top:0/height:100%), which
+   swapped out its normal centred pill for a full-height rectangle — losing
+   the centring, and for auto_bridged's height-sized connector-line gradient,
+   breaking the fill outright. A sibling box at the same left/width instead
+   frames the period without touching what's rendered inside it. It rings
+   itself INWARD via box-shadow (not outline+outline-offset): the old outward
+   outline painted outside the box inside an overflow:hidden track, which on
+   the shorter raw lanes had no room and got shaved. It spans the full track
+   height so even a min-width segment gets a legible target, and takes no
+   background of its own so the segment stays fully visible through it. */
+.selbox{position:absolute;top:0;height:100%;border-radius:3px;box-shadow:inset 0 0 0 2px var(--fg);pointer-events:none;z-index:3}
 .detail{display:none;margin-top:.6rem;padding-top:.6rem;border-top:1px dashed var(--line2)}
 .lane.open .detail{display:block}
 /* The period marker doubles as the receipt's swatch — the receipt defines the
@@ -258,8 +271,7 @@ main{max-width:900px;margin:0 auto;padding:1rem}
    two channels as .seg, at dot scale. */
 .pt{width:.75rem;height:.75rem;border-radius:2px;display:inline-block;flex:none;border:1px solid transparent}
 .pt.sensor{background:var(--sensor)}
-.pt.auto_bridged{background-color:var(--sensor-soft);
- background-image:repeating-linear-gradient(135deg,var(--sensor) 0 2px,transparent 2px 5px)}
+.pt.auto_bridged{background-image:linear-gradient(transparent 0 2px,var(--sensor) 2px 10px,transparent 10px 100%)}
 .pt.manual_added{background:var(--sensor);border-bottom:2px solid var(--accent)}
 .pt.gap,.pt.review{background:var(--quiet2);border-color:var(--line)}
 .pt.removed{background:var(--quiet2);border-bottom:2px solid var(--accent)}
@@ -705,12 +717,24 @@ function canSelect(d,p){
 
 // overlapsTypes/rawTile/markRawProvisional come from LANE_HELPERS_SRC above.
 
+// Drop a selection ring onto a segment without touching the segment itself:
+// a sibling box copying its left/width, so whatever the segment renders
+// (centred pill, connector line, border accent, ...) stays exactly as-is.
+function markSelBox(track,segEl){
+ segEl.classList.add('sel');
+ const box=el('<div class="selbox"></div>');
+ box.style.left=segEl.style.left;
+ box.style.width=segEl.style.width;
+ track.appendChild(box);
+}
+
 // Clear every current selection highlight (merged track, mirrored list, and
 // every raw per-machine lane) before applying a new one — selection sources
 // are mutually exclusive at any moment.
 function clearSelection(lane){
  selPeriod=null;
  lane.querySelectorAll('.seg.sel').forEach(s=>s.classList.remove('sel'));
+ lane.querySelectorAll('.selbox').forEach(b=>b.remove());
  lane.querySelectorAll('.prow.sel').forEach(r=>r.classList.remove('sel'));
  // The classifier is mounted at the selection, so clearing the selection
  // unmounts it — nothing action-shaped is left on screen with nothing selected.
@@ -771,7 +795,7 @@ function dayLane(d,i,now){
   if(!canSelect(d,d.periods[idx]))return; // midnight-touching idle gaps are inert
   clearSelection(lane);
   selPeriod={dayStart:d.dayStart,idx};
-  const segEl=track.querySelector('.seg[data-i="'+idx+'"]');if(segEl)segEl.classList.add('sel');
+  const segEl=track.querySelector('.seg[data-i="'+idx+'"]');if(segEl)markSelBox(track,segEl);
   const rowEl=lane.querySelector('.prow[data-i="'+idx+'"]');
   if(!rowEl)return;
   rowEl.classList.add('sel');
@@ -951,7 +975,7 @@ function rawLanes(lane,d){
    // Same rule as the merged track: a gap touching local midnight is inert.
    if(s.type==='gap'&&(s.start===d.dayStart||s.end===d.dayStart+86400000))return;
    clearSelection(lane);
-   track.querySelectorAll('.seg')[idx].classList.add('sel');
+   markSelBox(track,track.querySelectorAll('.seg')[idx]);
    const growing=!!(s.provisional&&s.growing);
    // No correction identity here, so the positions are overlap-gated and no
    // current position is claimed — the raw lane does not know the merged state.
