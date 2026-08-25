@@ -192,7 +192,7 @@ main{max-width:900px;margin:0 auto;padding:1rem}
    segments it must align with (see CLAUDE.md), a background cannot. --ofs/--ofe
    are set inline per track; defaulting both to 0% means "no band" for any track
    that doesn't set them (personal mode, where office hours don't apply). */
-.track{position:relative;height:30px;border-radius:6px;background-color:var(--panel2);border:1px solid var(--line);overflow:hidden;
+.track{position:relative;height:30px;border-radius:2px;background-color:var(--panel2);border:1px solid var(--line);overflow:hidden;
  background-image:repeating-linear-gradient(90deg,var(--tick-strong) 0 1px,transparent 1px calc(100%/24)),
  repeating-linear-gradient(90deg,var(--tick) 0 1px,transparent 1px calc(100%/48)),
  repeating-linear-gradient(90deg,var(--tick-faint) 0 1px,transparent 1px calc(100%/96)),
