@@ -282,6 +282,28 @@ def run(argv: list) -> int:
         return 1
 
 
+# platform_source() can transiently fail right after login/resume-from-suspend,
+# before the display server has finished (re)initializing. Observed on this
+# machine's own systemd unit: "cannot open X display" firing right at session
+# start, needing 1-2 of systemd's own 10s-spaced restarts to clear. Retrying
+# in-process avoids relying on that external restart at all, and avoids
+# burning through systemd's default restart-burst limit on a bad day.
+IDLE_SOURCE_MAX_WAIT_S = 30.0
+IDLE_SOURCE_RETRY_S = 2.0
+
+
+def _acquire_idle_source(max_wait_s: float = IDLE_SOURCE_MAX_WAIT_S, retry_s: float = IDLE_SOURCE_RETRY_S):
+    deadline = time.monotonic() + max_wait_s
+    while True:
+        try:
+            return platform_source()
+        except OSError as e:
+            if time.monotonic() >= deadline:
+                raise
+            logger.warning("idle source not ready yet (%s); retrying in %.0fs", e, retry_s)
+            time.sleep(retry_s)
+
+
 def _run_daemon(args: Args, cfg: Config, config_path: Path, machine: dict) -> int:
     # Refresh thresholds; fall back to cached/defaults offline.
     try:
@@ -312,7 +334,7 @@ def _run_daemon(args: Args, cfg: Config, config_path: Path, machine: dict) -> in
     flush(cfg, ob)
 
     try:
-        source = platform_source()
+        source = _acquire_idle_source()
     except OSError as e:
         logger.error("idle source: %s", e)
         return 1
@@ -320,7 +342,7 @@ def _run_daemon(args: Args, cfg: Config, config_path: Path, machine: dict) -> in
     last_mono: Optional[float] = None
     while True:
         s: Sample = source.sample()
-        logger.debug("sample idle_ms=%s locked=%s", s.idle_ms, s.locked)
+        logger.debug("sample now=%d idle_ms=%s locked=%s", now_ms(), s.idle_ms, s.locked)
         mono_now = time.monotonic()
         mono_elapsed_ms = None if last_mono is None else int((mono_now - last_mono) * 1000)
         last_mono = mono_now

@@ -275,6 +275,43 @@ This project MUST never incur any charge — not now, not after any trial or 12-
   (dev-only, forces an immediate reseal) rather than waiting for the alarm —
   useful for any bug shaped like "the correction landed, but an old sealed
   number is still showing."
+- **A tracked day shows one long "active" span spanning a period the machine
+  was actually asleep/lid-closed with no input** → investigated via
+  `~/.config/flexitracker/flexitracker.log*` + `journalctl --user -u
+  flexitracker.service` (fastest way to diagnose this class of report).
+  Confirmed the reconcile-on-restart path (`StateMachine.recover`) does
+  correctly back-date the closed span to the last real evidence once the
+  daemon gets a tick to run it — a 2-day lid-closed gap on one machine closed
+  correctly. Also confirmed a real, separate gap on that same machine:
+  `platform_source()` raising (observed as "cannot open X display") previously
+  **crashed the whole daemon outright** with no retry of its own — right after
+  login/resume, before the display server has finished (re)initializing, is
+  exactly when that's likely to fire, and nothing in-process retried it (only
+  the OS-level service supervisor, if any, did). Fixed:
+  `_acquire_idle_source()` (`cli.py`) retries with a short backoff for up to
+  `IDLE_SOURCE_MAX_WAIT_S` before giving up.
+  A *second* incident, on a corporate Windows laptop, pinned an actual
+  active-span-doesn't-close case: `min_inactivity` (protocol-fixed at 600s)
+  should make `now - idle_ms` on close read back at least 600s every time, but
+  this machine's INFO log showed every single close reading back only 15–300s
+  — for weeks — meaning `idle_ms` (from `GetLastInputInfo`/`GetTickCount`) was
+  not trustworthy on that box independent of this one incident, most likely
+  around Modern Standby (S0ix), which many corporate laptops default to and
+  which is known to let `GetTickCount` and real elapsed wall time drift apart
+  across a sleep/wake. Fixed at the root rather than chasing the timer:
+  `idle.py` now also queries **session-lock state**, which is authoritative
+  regardless of what the idle-time API says — `windows_session_locked()` via
+  `WTSQuerySessionInformationW(..., WTSSessionInfoEx, ...)` on Windows,
+  `linux_session_locked()` via `loginctl show-session <id> -p LockedHint` on
+  Linux (both best-effort: any failure to query falls back to `locked=False`,
+  never crashes the daemon). This activates the state machine's existing
+  `tick.locked` branch (already covered by vector 08) on both platforms for
+  the first time — previously both `LinuxIdle` and `WindowsIdle` hardcoded
+  `locked=False`, so that branch was dead code in production. Not yet verified
+  against a real lock on either machine in production — if this recurs, DEBUG
+  (`FLEXITRACKER_LOG_LEVEL=DEBUG`, restarted *before* the next occurrence) now
+  logs every tick's `locked` value plus every state-machine decision, which
+  will show conclusively whether lock detection actually fired.
 
 ## Environment & tooling gotchas (this machine)
 
