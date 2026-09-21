@@ -15,7 +15,13 @@ export interface Settings {
   weeklyNormMin: number;
 
   // Rules.
-  /** Active spans shorter than this are dropped (seconds). */
+  /**
+   * Active spans shorter than this are dropped as sensor noise before
+   * gap-bridging runs (seconds). Lowering it lets a brief-but-genuine touch
+   * (e.g. closing the lid right after a workshop) survive into `sensor` and
+   * split what would otherwise be one long ungapped stretch into smaller,
+   * separately-bridgeable pieces.
+   */
   minActiveSec: number;
   /** In-hours gaps at/above this are private leave, not auto-bridged (seconds). */
   privateLeaveThresholdSec: number;
@@ -117,6 +123,12 @@ const NUMERIC_DOMAINS: Partial<Record<keyof Settings, NumericDomain>> = {
   // Floor of 5 s so a return to work still requires deliberate input; ceiling of
   // an hour because beyond that a genuine return would never be confirmed.
   minActivitySec: { min: 5, max: 3600, label: "activity confirmation threshold" },
+  // Floor of 0 (no noise filtering at all) is allowed deliberately — unlike
+  // minActivitySec there is no "must be deliberate input" concern here, since
+  // the daemon's own fresh-input check already gated what became a sensor
+  // span in the first place. Ceiling of an hour for the same reason as above:
+  // beyond that, a genuine short work burst would never be counted.
+  minActiveSec: { min: 0, max: 3600, label: "minimum counted activity" },
 };
 
 /**

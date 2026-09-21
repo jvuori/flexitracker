@@ -1100,6 +1100,17 @@ function renderSettings(s){
   readers.push(()=>({workingWeekdays:DAYNAMES.map((_,i)=>i).filter(i=>document.getElementById('wd_'+i).checked)}));
  };
 
+ // Plain seconds, unlike durationField's h+m widget — both fields here are
+ // tuned down to single-digit seconds, where an h+m control would round the
+ // value away entirely (5s displays as "0h 00m").
+ const secondsField=(box,key,label,val,min,max)=>{
+  box.append(el('<label>'+label+'</label>'));
+  const inp=el('<input type="number" inputmode="numeric">');
+  inp.min=min;inp.max=max;inp.value=val;
+  box.append(inp);
+  readers.push(()=>({[key]:Number(inp.value)}));
+ };
+
  const gen=section('General','');
  zoneField(gen,'timezone','Timezone',s.timezone);
 
@@ -1107,6 +1118,12 @@ function renderSettings(s){
  timeRangeField(off,'Office hours','workdayStartMin','workdayEndMin',s.workdayStartMin,s.workdayEndMin);
  durationField(off,'privateLeaveThresholdSec','Private-leave threshold',s.privateLeaveThresholdSec,60);
  hint(off,'Gaps inside office hours at or above this count as private leave instead of being bridged.');
+
+ const act=section('Activity detection','How sensitive the tracker is to brief touches. Lower values catch shorter activity bursts (e.g. touching the mouse right before closing the lid) but are more sensitive to noise.');
+ secondsField(act,'minActivitySec','Return-to-work confirmation (seconds)',s.minActivitySec,5,3600);
+ hint(act,'How long input must continue before a return from idle counts as active. Minimum 5s — a return still requires deliberate input.');
+ secondsField(act,'minActiveSec','Minimum counted activity (seconds)',s.minActiveSec,0,3600);
+ hint(act,'Active bursts shorter than this are dropped as noise before gap-bridging runs. Lowering it lets a brief touch split a long gap into smaller, separately-bridgeable pieces.');
 
  const norms=section('Norms','How much work is expected, and what is deducted from it.');
  weekdayField(norms,'Working days',s.workingWeekdays);

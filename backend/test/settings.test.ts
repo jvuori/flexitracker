@@ -199,6 +199,14 @@ describe("normalizeSettingsPatch", () => {
     expect(() => normalizeSettingsPatch({ minActivitySec: 99999 }, cur)).toThrow();
   });
 
+  it("keeps the minimum-counted-activity noise floor settable and validated", () => {
+    expect(normalizeSettingsPatch({ minActiveSec: 5 }, cur).minActiveSec).toBe(5);
+    // Unlike minActivitySec, 0 is a legitimate value here (no noise filtering).
+    expect(normalizeSettingsPatch({ minActiveSec: 0 }, cur).minActiveSec).toBe(0);
+    expect(() => normalizeSettingsPatch({ minActiveSec: -1 }, cur)).toThrow();
+    expect(() => normalizeSettingsPatch({ minActiveSec: 99999 }, cur)).toThrow();
+  });
+
   it("names both operands and their effective values when a pair is rejected", () => {
     // A partial patch rejected against a stored counterpart must be
     // diagnosable from the message alone.
