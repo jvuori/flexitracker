@@ -1,0 +1,14 @@
+{
+  "name": "heartbeat_does_not_clamp_a_later_idle_backdate",
+  "description": "A heartbeat between the real last input and the confirmed idle close must not force the idle close's back-dated ts forward to the heartbeat's ts. Reproduces a production incident: real last input 14:01:33, confirmed idle 14:11:42, incorrectly reported as ending 14:07:11 (the last heartbeat) instead of 14:01:33.",
+  "initial": { "reported_state": "Active", "last_active_time": 0, "last_emitted_ts": 0 },
+  "steps": [
+    { "op": "tick", "now": 300000, "idle_ms": 300000 },
+    { "op": "tick", "now": 600000, "idle_ms": 600000 }
+  ],
+  "expected": [
+    { "kind": "heartbeat", "ts": 300000 },
+    { "kind": "idle", "ts": 0 }
+  ],
+  "expected_final": { "reported_state": "Idle" }
+}

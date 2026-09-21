@@ -83,13 +83,33 @@ class StateMachine:
         self.p = persisted
 
     def emit(self, ts: int, kind: str) -> dict:
-        """Emit an event, holding the monotonic-timestamp watermark. Clamping
-        here means no path can emit out of order."""
+        """Emit a span-boundary event (active/idle), holding the monotonic
+        watermark so no path can emit one out of order relative to the last.
+        Heartbeats go through `emit_heartbeat` instead, deliberately NOT
+        through here: the backend pairs spans from active/idle ts alone
+        (`pairSpans` in worktime.ts) and never requires an idle ts to be at or
+        after some prior heartbeat's ts — a heartbeat is a wall-clock liveness
+        ping, not a span boundary. Letting a heartbeat raise this watermark
+        used to force a legitimately earlier, correctly back-dated idle close
+        forward to the last heartbeat's ts — which happened on essentially
+        every idle transition at default settings, since heartbeat_ms (5 min)
+        is shorter than min_inactivity_ms (10 min), so a heartbeat has always
+        fired since the real last input by the time idle_long confirms.
+        Observed in production: an active span's real last input was 14:01:33,
+        confirmed idle at 14:11:42, and got reported as ending 14:07:11 (the
+        last heartbeat) instead — see CLAUDE.md."""
         prev = self.p.last_emitted_ts
         if prev is not None and ts < prev:
             ts = prev
         self.p.last_emitted_ts = ts
         return event(ts, kind)
+
+    def emit_heartbeat(self, ts: int) -> dict:
+        """A wall-clock liveness ping, not a span boundary — see `emit`. `ts`
+        is always `tick.now` (never back-dated), so it never needs the
+        backwards-clock clamp for itself, and must not raise the watermark
+        that clamps a later active/idle back-date."""
+        return event(ts, EventKind.HEARTBEAT)
 
     def input_fresh(self, tick: Tick) -> bool:
         return (not tick.locked) and tick.idle_ms < FRESH_INPUT_MS
@@ -206,7 +226,7 @@ class StateMachine:
                     "-> heartbeat due (last_heartbeat=%s heartbeat_ms=%d)",
                     self.p.last_heartbeat, self.t.heartbeat_ms,
                 )
-                out.append(self.emit(tick.now, EventKind.HEARTBEAT))
+                out.append(self.emit_heartbeat(tick.now))
                 self.p.last_heartbeat = tick.now
         else:  # IDLE
             # "Activity persisted for min_activity" must tolerate short pauses.

@@ -293,25 +293,52 @@ This project MUST never incur any charge — not now, not after any trial or 12-
   A *second* incident, on a corporate Windows laptop, pinned an actual
   active-span-doesn't-close case: `min_inactivity` (protocol-fixed at 600s)
   should make `now - idle_ms` on close read back at least 600s every time, but
-  this machine's INFO log showed every single close reading back only 15–300s
-  — for weeks — meaning `idle_ms` (from `GetLastInputInfo`/`GetTickCount`) was
-  not trustworthy on that box independent of this one incident, most likely
-  around Modern Standby (S0ix), which many corporate laptops default to and
-  which is known to let `GetTickCount` and real elapsed wall time drift apart
-  across a sleep/wake. Fixed at the root rather than chasing the timer:
-  `idle.py` now also queries **session-lock state**, which is authoritative
-  regardless of what the idle-time API says — `windows_session_locked()` via
-  `WTSQuerySessionInformationW(..., WTSSessionInfoEx, ...)` on Windows,
-  `linux_session_locked()` via `loginctl show-session <id> -p LockedHint` on
-  Linux (both best-effort: any failure to query falls back to `locked=False`,
-  never crashes the daemon). This activates the state machine's existing
-  `tick.locked` branch (already covered by vector 08) on both platforms for
-  the first time — previously both `LinuxIdle` and `WindowsIdle` hardcoded
-  `locked=False`, so that branch was dead code in production. Not yet verified
-  against a real lock on either machine in production — if this recurs, DEBUG
-  (`FLEXITRACKER_LOG_LEVEL=DEBUG`, restarted *before* the next occurrence) now
-  logs every tick's `locked` value plus every state-machine decision, which
-  will show conclusively whether lock detection actually fired.
+  this machine's INFO log showed every single close reading back only
+  15–300s — for weeks. At the time this was blamed on Modern Standby (S0ix)
+  making `GetTickCount`/`idle_ms` untrustworthy — **that theory was wrong**;
+  the real cause (found once DEBUG-level per-tick `idle_ms` was available, see
+  below) is a genuine state-machine bug, not a Windows quirk, and reproduces
+  identically on any platform. Fixed at the root anyway by adding
+  **session-lock state** as an idle signal independent of `idle_ms`:
+  `windows_session_locked()` via `WTSQuerySessionInformationW(...,
+  WTSSessionInfoEx, ...)` on Windows, `linux_session_locked()` via `loginctl
+  show-session <id> -p LockedHint` on Linux (both best-effort: any failure to
+  query falls back to `locked=False`, never crashes the daemon). This
+  activates the state machine's existing `tick.locked` branch (already
+  covered by vector 08) on both platforms for the first time — previously
+  both `LinuxIdle` and `WindowsIdle` hardcoded `locked=False`, so that branch
+  was dead code in production.
+  **The real root cause**, found from that same machine's DEBUG log once it
+  had accumulated data: `idle_ms` was climbing perfectly linearly the whole
+  time (no drift, no resets) — e.g. one closed span's real last input was
+  14:01:33 (`idle_ms` growing cleanly from there), correctly confirmed idle
+  at 14:11:42 (the 10-minute mark), which should have back-dated the close to
+  14:01:33 — but the event was emitted with ts **14:07:11**, exactly matching
+  the most recent heartbeat. `StateMachine.emit()`'s out-of-order clamp (a
+  backwards-clock guard: "never emit below the watermark") was being fed by
+  **heartbeat emissions too**, and since `heartbeat_ms` (5 min) is shorter
+  than `min_inactivity_ms` (10 min), a heartbeat has *always* fired since the
+  true last input by the time idle_long confirms — so the clamp was pulling
+  every single idle close forward to the last heartbeat's ts, silently
+  inflating every active span by up to ~5 minutes, systematically, on every
+  idle transition, forever. The backend's `pairSpans` (`worktime.ts`) proves
+  this was never load-bearing: it pairs spans from active/idle ts alone and
+  never requires an idle ts to be at or after some prior heartbeat's ts — a
+  heartbeat is a liveness ping, not a span boundary. Fixed: heartbeats now go
+  through `StateMachine.emit_heartbeat()`, a separate path that does not
+  touch `last_emitted_ts`; regression vector `25-heartbeat-does-not-clamp-
+  idle-backdate.json` reproduces the exact production numbers above. Rule of
+  thumb for this class of report ("day shows less/more time than it should,
+  off by single-digit minutes, consistently") — check whether a periodic event
+  (heartbeat, or anything else on a wall-clock cadence) is leaking into a
+  watermark/clamp meant for something else; single-digit-minute, *consistent*
+  offsets are a strong tell for an interval-sized systematic bug rather than a
+  one-off clock/timing fluke.
+  Lock detection is still not yet verified against a real lock in production
+  on either machine — if a `locked=False`-despite-being-locked case recurs,
+  DEBUG (`FLEXITRACKER_LOG_LEVEL=DEBUG`, restarted *before* the next
+  occurrence) logs every tick's `locked` value plus every state-machine
+  decision, which will show conclusively whether it fired.
 
 ## Environment & tooling gotchas (this machine)
 
