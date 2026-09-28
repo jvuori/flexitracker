@@ -372,14 +372,32 @@ This project MUST never incur any charge — not now, not after any trial or 12-
   notices the data is missing). Any future OS-native signal read via raw
   struct offsets (not a documented stable ABI call) needs verification on
   real hardware before shipping, not just careful reasoning about the
-  struct layout — this one looked careful and was still wrong. The 6 days
-  of real activity were recovered by re-running the actual `StateMachine`
-  offline against the `DEBUG tick: now=... idle_ms=... mono_elapsed_ms=...`
-  lines already in the log (forcing `locked=False` throughout, since that's
-  now known to be always-wrong for this window) and replaying the
-  reconstructed active/idle events through the real `/ingest` endpoint —
-  the same "never inject precomputed rollups, only real events through the
-  real pipeline" principle as the synthetic-activity generator.
+  struct layout — this one looked careful and was still wrong.
+  **Backfilling the 6 missing days was attempted and abandoned** — offline
+  replay of the real `StateMachine` against the `DEBUG tick: now=...
+  idle_ms=... mono_elapsed_ms=...` lines already in the log, forcing
+  `locked=False` throughout (since the recorded value is known-wrong for
+  this whole window), reconstructed 20 candidate active/idle spans. Spot-
+  checking one against its surrounding raw ticks found it was fabricated:
+  `idle_ms` repeatedly dove to near-zero every ~15s for several consecutive
+  polls late Thursday evening — the *exact same noise signature* observed
+  during a period independently known to be genuinely locked earlier that
+  week — sustained long enough to fool even the 30s return-to-active
+  debounce, opening a bogus "active" span that then rode the entire
+  machine-off weekend (zero log lines at all for Fri–Sun, confirmed) until
+  the next real Monday tick closed it. **This means `idle_ms` alone is not
+  a trustworthy presence signal on this machine during locked periods, at
+  any sustain threshold checked so far** — not just "less precise without
+  lock detection," genuinely capable of fabricating multi-day fake active
+  spans. Decision: do not auto-inject the reconstruction; the user adds any
+  real work time for 2026-09-22 (from 14:22) through whichever day they
+  actually upgrade to v0.5.1 via manual `add_work` corrections instead,
+  from their own memory/calendar — slower, but nothing goes into the
+  account that a human didn't vouch for. If this shape of incident recurs
+  and backfill is wanted again, don't repeat the blind-replay approach;
+  either require a much longer sustained-low-idle_ms window before trusting
+  a span, or show each candidate span with context for a human yes/no
+  before ever calling `/ingest`.
 
 ## Environment & tooling gotchas (this machine)
 
