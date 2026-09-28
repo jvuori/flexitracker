@@ -339,6 +339,47 @@ This project MUST never incur any charge — not now, not after any trial or 12-
   DEBUG (`FLEXITRACKER_LOG_LEVEL=DEBUG`, restarted *before* the next
   occurrence) logs every tick's `locked` value plus every state-machine
   decision, which will show conclusively whether it fired.
+- **A user's whole week is missing from the app — the web page shows nothing
+  past a specific day, with zero errors anywhere** → **v0.5.0's Windows lock
+  detection (`windows_session_locked()`, the exact "not yet verified" gap
+  called out just above) shipped broken: on the machine that upgraded, DEBUG
+  showed `locked=True` on the very first poll of the very first v0.5.0 run,
+  and never once `locked=False` again — 20,000+ polls over 6 days.** Since
+  `input_fresh()` is `(not locked) and idle_ms < FRESH_INPUT_MS`, a
+  permanently-locked reading isn't "less accurate," it's a hard stop: the
+  state machine becomes structurally incapable of ever confirming `active`
+  again, silently, with no error anywhere — `reported_state` just sits at
+  `Idle` forever and nothing is ever sent to `/ingest`. The bug almost
+  certainly lives in the unverified `WTSINFOEXW`/`WTSINFOEX_LEVEL1_W`
+  struct-offset read (`_WTS_SESSION_FLAGS_OFFSET = 12`) landing on the wrong
+  bytes and happening to read `0` (`WTS_SESSIONSTATE_LOCK`) every time — a
+  wrong-but-confident answer, not a failure the existing `except OSError:
+  locked = False` fallback could ever catch, since the WTS call itself
+  succeeds. Diagnosed entirely from a downloaded copy of the machine's own
+  `flexitracker.log*` (`grep -c "locked=False"` across the whole file =
+  `0` was the tell) — the daemon *was* still polling and logging the whole
+  time, it just never had anything true to report. Fixed (emergency,
+  v0.5.1): `WindowsIdle` no longer loads `wtsapi32`/calls
+  `windows_session_locked()` at all — hardcoded back to the known-safe
+  pre-v0.5.0 `locked=False` — rather than trying to patch an offset guess
+  blind a second time. **Rule of thumb this incident earns:** a best-effort
+  external signal that's designed to "fail to `False` on error" only
+  protects against the call *failing* — it does nothing against the call
+  *succeeding* with a wrong answer, which is the more dangerous failure
+  mode for anything gating a boolean AND (here, "return to active" requires
+  BOTH fresh input AND not-locked, so a stuck-`True` lock signal silently
+  masks 100% of real activity, forever, with zero symptoms until someone
+  notices the data is missing). Any future OS-native signal read via raw
+  struct offsets (not a documented stable ABI call) needs verification on
+  real hardware before shipping, not just careful reasoning about the
+  struct layout — this one looked careful and was still wrong. The 6 days
+  of real activity were recovered by re-running the actual `StateMachine`
+  offline against the `DEBUG tick: now=... idle_ms=... mono_elapsed_ms=...`
+  lines already in the log (forcing `locked=False` throughout, since that's
+  now known to be always-wrong for this window) and replaying the
+  reconstructed active/idle events through the real `/ingest` endpoint —
+  the same "never inject precomputed rollups, only real events through the
+  real pipeline" principle as the synthetic-activity generator.
 
 ## Environment & tooling gotchas (this machine)
 

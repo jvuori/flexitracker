@@ -173,10 +173,16 @@ class WindowsIdle:
     def __init__(self) -> None:
         self._user32 = ctypes.windll.user32  # type: ignore[attr-defined]
         self._kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-        try:
-            self._wtsapi32 = ctypes.windll.wtsapi32  # type: ignore[attr-defined]
-        except OSError:
-            self._wtsapi32 = None  # lock detection unavailable; idle_ms-only, as before
+        # windows_session_locked() (WTSQuerySessionInformationW/WTSSessionInfoEx,
+        # below) is DISABLED — see CLAUDE.md. Its struct-offset read was never
+        # verified on real Windows hardware and, in production, it returned
+        # "locked" on the very first poll and never once returned "unlocked"
+        # again across 6 days / 20,000+ polls — not imprecise, structurally
+        # incapable of ever confirming activity again, since input_fresh()
+        # requires `not locked`. Hardcoded to None (idle_ms-only, the
+        # known-safe pre-v0.5.0 behavior) until this is fixed AND actually
+        # verified against real hardware, not just reasoned about.
+        self._wtsapi32 = None
 
     def sample(self) -> Sample:
         info = _LASTINPUTINFO()

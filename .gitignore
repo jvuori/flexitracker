@@ -21,3 +21,7 @@ daemon-py/build/
 
 # Personal activity export (migrated into PROD, not for the repo)
 /events.txt
+
+# Downloaded daemon logs/config from a real machine (contains a live access
+# key) -- used to diagnose an incident, never for the repo.
+/logs/
