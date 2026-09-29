@@ -120,17 +120,31 @@ class _LASTINPUTINFO(ctypes.Structure):
 
 # WTSQuerySessionInformationW(..., WTSSessionInfoEx, ...) fills a WTSINFOEXW:
 #   DWORD Level;                    // offset 0 — union variant selector (1 == Level1)
-#   union { WTSINFOEX_LEVEL1_W L1;  // offset 4 (DWORD-aligned)
-#     ULONG SessionId;              //   +0
-#     WTS_CONNECTSTATE_CLASS State; //   +4  (C enum, 4 bytes)
-#     LONG  SessionFlags;           //   +8  (WTS_SESSIONSTATE_LOCK=0 / _UNLOCK=1 / _UNKNOWN=-1)
+#   <4 bytes padding>                // offset 4 — see below
+#   union { WTSINFOEX_LEVEL1_W L1;  // offset 8
+#     ULONG SessionId;              //   +0  (offset 8)
+#     WTS_CONNECTSTATE_CLASS State; //   +4  (offset 12; C enum, 4 bytes)
+#     LONG  SessionFlags;           //   +8  (offset 16; WTS_SESSIONSTATE_LOCK=0 / _UNLOCK=1 / _UNKNOWN=-1)
 #     ... (session addresses, latency — unused, and version-sensitive) ...
 #   }
+# The padding is NOT in Microsoft's field list (which just shows Level then
+# the union) — it exists because WTSINFOEX_LEVEL1_W contains several 8-byte
+# LARGE_INTEGER fields further down (LogonTime etc.), which gives the whole
+# struct — and the union wrapping it — 8-byte alignment on a 64-bit process,
+# pushing the union from offset 4 to offset 8. A first version of this code
+# used offset 12 for SessionFlags, reasoned from the field list without
+# accounting for this, and it landed on SessionState instead (0 = WTSActive
+# for a normal local console session — which numerically collides with
+# WTS_SESSIONSTATE_LOCK, so it read "locked" 100% of the time in production;
+# see CLAUDE.md). Offset 16 was confirmed empirically — not just reasoned —
+# via `tools/wts_lock_diagnostic.py`: [8] exactly matched an independently
+# fetched WTSGetActiveConsoleSessionId() (proving SessionId's real offset),
+# and [16] was the one that actually flipped 1↔0 on real lock/unlock.
 # Reading just these two ints by fixed offset (rather than modeling the full,
 # larger union) mirrors the same trick already used for X11's
-# XScreenSaverInfo above — the ABI for this struct has been stable since Vista.
+# XScreenSaverInfo above.
 _WTS_LEVEL_OFFSET = 0
-_WTS_SESSION_FLAGS_OFFSET = 12
+_WTS_SESSION_FLAGS_OFFSET = 16
 WTS_SESSIONSTATE_LOCK = 0
 WTS_CURRENT_SERVER_HANDLE = 0
 WTS_CURRENT_SESSION = -1  # cast to DWORD below; WTS_CURRENT_SESSION is (DWORD)-1
@@ -173,16 +187,16 @@ class WindowsIdle:
     def __init__(self) -> None:
         self._user32 = ctypes.windll.user32  # type: ignore[attr-defined]
         self._kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-        # windows_session_locked() (WTSQuerySessionInformationW/WTSSessionInfoEx,
-        # below) is DISABLED — see CLAUDE.md. Its struct-offset read was never
-        # verified on real Windows hardware and, in production, it returned
-        # "locked" on the very first poll and never once returned "unlocked"
-        # again across 6 days / 20,000+ polls — not imprecise, structurally
-        # incapable of ever confirming activity again, since input_fresh()
-        # requires `not locked`. Hardcoded to None (idle_ms-only, the
-        # known-safe pre-v0.5.0 behavior) until this is fixed AND actually
-        # verified against real hardware, not just reasoned about.
-        self._wtsapi32 = None
+        # windows_session_locked() (WTSQuerySessionInformationW/WTSSessionInfoEx)
+        # was disabled in v0.5.1 after shipping an unverified struct offset
+        # that read "locked" permanently in production (see CLAUDE.md). The
+        # corrected offset (16, not 12) is now confirmed by direct
+        # measurement on real hardware, not just reasoning — see the offset
+        # comment above and `tools/wts_lock_diagnostic.py`. Re-enabled.
+        try:
+            self._wtsapi32 = ctypes.windll.wtsapi32  # type: ignore[attr-defined]
+        except OSError:
+            self._wtsapi32 = None  # lock detection unavailable; idle_ms-only, as before
 
     def sample(self) -> Sample:
         info = _LASTINPUTINFO()

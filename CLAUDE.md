@@ -373,6 +373,24 @@ This project MUST never incur any charge — not now, not after any trial or 12-
   struct offsets (not a documented stable ABI call) needs verification on
   real hardware before shipping, not just careful reasoning about the
   struct layout — this one looked careful and was still wrong.
+  **Resolved in v0.5.2**: `tools/wts_lock_diagnostic.py` (added for exactly
+  this) dumped the raw WTSINFOEXW buffer on the real affected machine plus
+  an independent `WTSGetActiveConsoleSessionId()` cross-check. Confirmed by
+  actual measurement, two ways at once: `[8]` exactly matched the
+  independently-fetched console session id in every sample (pinning
+  `SessionId`'s real offset), and `[16]` was the one that actually flipped
+  `1↔0` in lockstep with real Win+L lock/unlock — matching the documented
+  `WTS_SESSIONSTATE_UNLOCK=1`/`_LOCK=0`. `[12]` (the original, wrong offset)
+  sat at a constant `0` the whole time: `SessionState` (`WTSActive`), not
+  `SessionFlags` — confirming the 8-byte-alignment theory (the several
+  `LARGE_INTEGER` fields further into `WTSINFOEX_LEVEL1_W` give the whole
+  struct, and the union wrapping it, 8-byte alignment, pushing the union 4
+  bytes later than a naive reading of Microsoft's field list assumes).
+  `_WTS_SESSION_FLAGS_OFFSET` corrected to 16; `WindowsIdle` re-enabled.
+  Verified on one real 64-bit Windows machine only — a 32-bit process would
+  plausibly use 4-byte `LARGE_INTEGER` alignment instead (no padding, offset
+  12 would've been right there); re-run the diagnostic before trusting this
+  offset on anything that isn't x86_64 Windows.
   **Backfilling the 6 missing days was attempted and abandoned** — offline
   replay of the real `StateMachine` against the `DEBUG tick: now=...
   idle_ms=... mono_elapsed_ms=...` lines already in the log, forcing

@@ -1,20 +1,29 @@
-"""Diagnostic: find the TRUE byte offset of SessionFlags (lock state) inside
-the WTSINFOEXW buffer returned by WTSQuerySessionInformationW, on this
-specific Windows build. Windows only. Standalone -- does not import
-`flexitracker`, deliberately, so this can't share whatever bug it's here to
-find.
+"""Diagnostic that found the TRUE byte offset of SessionFlags (lock state)
+inside the WTSINFOEXW buffer returned by WTSQuerySessionInformationW. Windows
+only. Standalone -- does not import `flexitracker`, deliberately, so it
+can't share whatever bug it's used to find.
+
+RESOLVED (2026-09-29): offset 16, not the originally-shipped 12. Confirmed
+by real output from this tool, two ways at once: [8] exactly matched an
+independently fetched WTSGetActiveConsoleSessionId() every sample (pinning
+SessionId's real offset), and [16] was the one that actually flipped 1<->0
+in lockstep with real Win+L lock/unlock, matching the documented
+WTS_SESSIONSTATE_UNLOCK=1 / _LOCK=0. [12] (the original offset) sat at a
+constant 0 throughout -- SessionState (WTSActive), not SessionFlags. Fixed
+in `idle.py`; kept here for the next time this class of bug needs
+re-verifying, on a different Windows build or architecture.
 
 Why this exists: `windows_session_locked()` in `flexitracker/idle.py` used
 offset 12 (reasoned from the documented struct field order, assuming no
 padding). In production it always read "locked" -- see CLAUDE.md. The
-likely explanation, worked out afterwards from Microsoft's own struct
-definitions: WTSINFOEX_LEVEL1_W contains several 8-byte LARGE_INTEGER
-fields, which gives the whole struct (and the union wrapping it) 8-byte
-alignment, which would push the union 4 bytes later than offset 12 assumed
--- landing on SessionState (usually 0 = WTSActive) instead of SessionFlags,
-and 0 also happens to mean WTS_SESSIONSTATE_LOCK. That's a reasoned
-hypothesis, not a measurement, and we already shipped one wrong guess here
--- so this script measures it directly instead of guessing again.
+explanation, worked out from Microsoft's own struct definitions and then
+confirmed by this script's actual output: WTSINFOEX_LEVEL1_W contains
+several 8-byte LARGE_INTEGER fields, which gives the whole struct (and the
+union wrapping it) 8-byte alignment, pushing the union 4 bytes later than
+offset 12 assumed -- landing on SessionState (usually 0 = WTSActive)
+instead of SessionFlags, and 0 also happens to mean WTS_SESSIONSTATE_LOCK.
+Reasoning alone wasn't trusted a second time after the first offset guess
+shipped wrong -- this script measured it instead.
 
 Usage (from daemon-py/):
     uv run tools/wts_lock_diagnostic.py [poll_seconds] [total_seconds]
