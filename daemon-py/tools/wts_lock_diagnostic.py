@@ -13,6 +13,16 @@ constant 0 throughout -- SessionState (WTSActive), not SessionFlags. Fixed
 in `idle.py`; kept here for the next time this class of bug needs
 re-verifying, on a different Windows build or architecture.
 
+The first run of this script also needed a fix of its own:
+WTSGetActiveConsoleSessionId is exported by Kernel32.dll, not Wtsapi32.dll,
+despite the WTS-prefixed name -- calling it on the wtsapi32 handle raised
+`AttributeError: function 'WTSGetActiveConsoleSessionId' not found`. That
+bug was confirmed NOT present in the production code (`idle.py` only calls
+WTSQuerySessionInformationW/WTSFreeMemory on wtsapi32, both genuinely
+exported there, and GetLastInputInfo/GetTickCount on the correct
+user32/kernel32) -- it only existed here, in this script, and is fixed
+below.
+
 Why this exists: `windows_session_locked()` in `flexitracker/idle.py` used
 offset 12 (reasoned from the documented struct field order, assuming no
 padding). In production it always read "locked" -- see CLAUDE.md. The
@@ -55,7 +65,7 @@ WTS_CURRENT_SESSION = 0xFFFFFFFF
 WTS_SESSION_INFO_EX = 25
 
 
-def dump_once(wtsapi32, ctypes) -> None:
+def dump_once(wtsapi32, kernel32, ctypes) -> None:
     buf = ctypes.c_void_p()
     length = ctypes.c_uint()
     ok = wtsapi32.WTSQuerySessionInformationW(
@@ -70,15 +80,22 @@ def dump_once(wtsapi32, ctypes) -> None:
         print(f"{ts}  WTSQuerySessionInformationW FAILED (ok={ok}, len={length.value})")
         return
     try:
-        console_session_id = wtsapi32.WTSGetActiveConsoleSessionId()
+        # WTSGetActiveConsoleSessionId is exported by Kernel32.dll, not
+        # Wtsapi32.dll, despite the WTS-prefixed name -- calling it on the
+        # wtsapi32 handle raised AttributeError the first time this ran.
+        console_session_id = kernel32.WTSGetActiveConsoleSessionId()
         n = min(length.value, 64)
         raw = ctypes.string_at(buf.value, n)
         hex_str = " ".join(f"{b:02x}" for b in raw)
         print(f"{ts}  console_session_id={console_session_id}  length={length.value}  bytes={hex_str}")
-        fields = []
-        for off in range(0, n - 3, 4):
-            i32 = ctypes.cast(buf.value + off, ctypes.POINTER(ctypes.c_int32)).contents.value
-            fields.append(f"[{off:2d}]={i32}")
+        # Decode straight from the byte buffer already dumped above, rather
+        # than a second ctypes.cast over raw pointer arithmetic on buf.value
+        # -- one less thing that could be wrong in a script whose whole job
+        # is to be a trustworthy ground truth.
+        fields = [
+            f"[{off:2d}]={int.from_bytes(raw[off:off + 4], 'little', signed=True)}"
+            for off in range(0, n - 3, 4)
+        ]
         print("           " + "  ".join(fields))
     finally:
         wtsapi32.WTSFreeMemory(buf)
@@ -90,7 +107,9 @@ def main() -> None:
 
     import ctypes  # local: importing this on non-Windows is fine, but
 
-    wtsapi32 = ctypes.windll.wtsapi32  # this line is Windows-only
+    wtsapi32 = ctypes.windll.wtsapi32  # these two lines are Windows-only
+    kernel32 = ctypes.windll.kernel32
+    kernel32.WTSGetActiveConsoleSessionId.restype = ctypes.c_uint32
 
     interval = float(sys.argv[1]) if len(sys.argv) > 1 else 2.0
     total = float(sys.argv[2]) if len(sys.argv) > 2 else 180.0
@@ -100,7 +119,7 @@ def main() -> None:
     print()
     deadline = time.monotonic() + total
     while time.monotonic() < deadline:
-        dump_once(wtsapi32, ctypes)
+        dump_once(wtsapi32, kernel32, ctypes)
         time.sleep(interval)
 
 
